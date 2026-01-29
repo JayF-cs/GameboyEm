@@ -80,6 +80,8 @@ class CPU
         const uint8_t FLAG_N = 1 << 6;
         const uint8_t FLAG_H = 1 << 5;
         const uint8_t FLAG_C = 1 << 4;
+
+        bool cpu_stopped = false; 
     
     public:
 
@@ -156,7 +158,7 @@ class CPU
         
         uint8_t step(Bus *b, registers *r){
 
-            //Read the pointer
+            //Read the opCode from PC register
             uint8_t opCode = b->read_8(r->PC);
             
             //Based on pointer content preform an operation
@@ -341,6 +343,93 @@ class CPU
                     setN(false);
                     setH(false);
                     setC(bit0);
+
+                    r->PC += 1;
+                    break;
+                }
+
+                case(0x10):
+                {
+                    // STOP n8 2 4 ----
+                    //On memory map row 1x and column x0 stop cpu
+                    r->PC += 2;
+                    cpu_stopped = true;
+                    break;
+                }
+
+                case (0x11):
+                {
+                    // LD DE n16 3 12 ----
+                    //On memory map row 1x column x1 fetch 16 bit and assign to DE register
+                    r->de = fetch_16();
+                    r->PC += 3;
+                    break;
+
+                }
+
+                case (0x12):
+                {
+                    //LD [DE], A 1 8 ----
+                    //On memory map row 1x column x2 write value in register A to address stored in DE register
+                    b->write_8(r->de, r->a);
+                    r->PC += 1;
+                    break;
+                }
+
+                case(0x13):
+                {
+                    // INC DE 1 8 ----
+                    //On memory map row 1x column x3 increment de register
+                    r->de += 1;
+                    r->PC += 1;
+                    break;
+
+                }
+
+                case (0x14):
+                {
+                    // INC D 1 4 Z 0 H -
+                    //On memory map row 1x column x4 increment d register and call proper flags
+                    inc8(r->d);
+                    r->PC += 1;
+                    break;
+                }
+
+                case(0x15):
+                {
+                    // DEC D 1 4 Z 1 H -
+                    //On memory map row 1x column x5 decrement d register and call proper flags
+                    dec8(r->d);
+                    r->PC += 1;
+                    break;
+                }
+
+                case (0x16):
+                {
+                    // LD D n8 2 8 ----
+                    //On memory map row 1x column x6 fetch 8 bit and write to D register
+                    r->d = fetch_8();
+                    r->PC += 2;
+                    break;
+                }
+
+                case (0x17):
+                {
+                    // RLA 1 4 0 0 0 C
+                    //On memory map row 1x column x7 rotate accumulator bit to the left by one and do not wrap bit 7
+                    uint8_t bit7 = r->a >> 7;
+                    uint8_t oldC = (r->f & FLAG_C) ? 1:0;
+                    r->a = (r->a << 1) | oldC;
+                    
+                    setZ(false);
+                    setN(false);
+                    setH(false);
+                    setC(bit7);
+
+                    r->PC += 1;
+
+                    break;
+
                 }
                     
             }
