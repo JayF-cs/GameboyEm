@@ -75,6 +75,7 @@ class CPU
         //Create pointers to a Bus class object and a registers struct object
         Bus *b;
         registers *r;
+        uint64_t tCycles = 0;
 
         const uint8_t FLAG_Z = 1 << 7;
         const uint8_t FLAG_N = 1 << 6;
@@ -156,18 +157,37 @@ class CPU
             return val;
         }
         
+        void addHL(uint16_t reg){
+            uint16_t val1 = r->hl;
+            uint16_t val2 = reg;
+            //Type cast the values to 32 bit add together and store in result
+            uint32_t result = (uint32_t)val1 + (uint32_t)val2;
+            //Type cast the result back to 16 bit
+            r->hl = (uint16_t)result;
+            setN(false);
+            //Check if lower 12 bits of hl and bc added together is greater then 12 bits
+            setH(((val1 & 0x0FFF) + (val2 & 0x0FFF)) > 0x0FFF);
+            //See if result if greater then 16 bits
+            setC(result > 0xFFFF);
+        }
+
         uint8_t step(Bus *b, registers *r){
 
             //Read the opCode from PC register
             uint8_t opCode = b->read_8(r->PC);
+
+            //Track cycle for step
+            uint8_t cycle;
             
             //Based on pointer content preform an operation
             switch(opCode){
                 
                 case(0x0):
                 {
+                    // NOP 1 4 ----
                     //On memory map row 0x column x0 NOP increment PC by 1 byte
                     r->PC += 1;
+                    cycle = 4;
 
                     break;
                 }
@@ -178,6 +198,7 @@ class CPU
                     //On memory map row 0x column x1 fetch 16 bit int and assign it to bc register
                     r->bc = fetch_16();
                     r->PC += 3;
+                    cycle = 12;
                     break;
                 }
 
@@ -187,6 +208,7 @@ class CPU
                     //On memory map row 0x column x2 write contents of A to address stored in bc registry
                     b->write_8(r->bc,r->a);
                     r->PC += 1;
+                    cycle = 8;
 
                     break; 
                 }
@@ -197,6 +219,7 @@ class CPU
                     //On memory map row 0x column x3 increment the BC register by one bit 
                     r->bc += 1;
                     r->PC += 1;
+                    cycle = 8;
                     break;
                 }
 
@@ -206,6 +229,7 @@ class CPU
                     //On memory map row 0x column x4 increment B register set z n and h flags accordingly
                     r->b = inc8(r->b);
                     r->PC += 1;
+                    cycle = 4;
 
                     break;
 
@@ -217,6 +241,7 @@ class CPU
                     //On memory map row 0x column x5 decrement B register set z n and h flags accordingly
                     r->b = dec8(r->b);
                     r->PC += 1;
+                    cycle = 4;
 
                     break;
                 }    
@@ -228,6 +253,7 @@ class CPU
 
                     r->b = fetch_8();
                     r->PC += 2;
+                    cycle = 8;
 
                     break;
                 }
@@ -252,6 +278,7 @@ class CPU
                     setC(bit7);
 
                     r->PC += 1;
+                    cycle = 4;
 
                     break;
                 }
@@ -263,6 +290,7 @@ class CPU
                     //On memory map row 0x column x8 write stack pointer to address after opcode
                     b->write_16(r->PC + 1, r->SP);
                     r->PC += 3;
+                    cycle = 20;
                     break;
                 }
                     
@@ -270,18 +298,9 @@ class CPU
                 {
                     // ADD HL, BC 1 8 - 0 H C
                     //On memory map row 0x column x9 add value in BC register to HL register
-                    uint16_t val1 = r->hl;
-                    uint16_t val2 = r->bc;
-                    //Type cast the values to 32 bit add together and store in result
-                    uint32_t result = (uint32_t)val1 + (uint32_t)val2;
-                    //Type cast the result back to 16 bit
-                    r->hl = (uint16_t)result;
-
-                    setN(false);
-                    //Check if lower 12 bits of hl and bc added together is greater then 12 bits
-                    setH(((val1 & 0x0FFF) + (val2 & 0x0FFF)) > 0x0FFF);
-                    //See if result if greater then 16 bits
-                    setC(result > 0xFFFF);
+                    addHL(r->bc);
+                    r->PC += 1;
+                    cycle = 8;
                     break;
                 }
                     
@@ -291,6 +310,7 @@ class CPU
                     //On memory map row 0x column xA load the the value stored in at the memory address in the BC register to register A
                     r->a = b->read_8(r->bc);
                     r->PC += 1;
+                    cycle = 8;
                     break;
                 }
 
@@ -300,6 +320,7 @@ class CPU
                     //On memory map row 0x column xB decrement BC register
                     r->bc -= 1;
                     r->PC += 1;
+                    cycle = 8;
                     break;
                 }
 
@@ -309,6 +330,7 @@ class CPU
                     //On memory map row 0x column xC increment C register and raise z n and h flags based on result
                     r->c = inc8(r->c);
                     r->PC += 1;
+                    cycle = 4;
 
                     break;
                 }
@@ -319,6 +341,7 @@ class CPU
                     //One memory map row 0x column xD decrement register C and raise z n and h flags based on result
                     r->c = dec8(r->c);
                     r->PC += 1;
+                    cycle = 4;
                     break;
                 }
 
@@ -328,6 +351,7 @@ class CPU
                     //On memory map row 0x column xE fetch 8 bit int and assign to C register;
                     r->c = fetch_8();
                     r->PC += 2;
+                    cycle = 8;
                     break;
                 }
                     
@@ -345,6 +369,7 @@ class CPU
                     setC(bit0);
 
                     r->PC += 1;
+                    cycle = 4;
                     break;
                 }
 
@@ -354,6 +379,7 @@ class CPU
                     //On memory map row 1x and column x0 stop cpu
                     r->PC += 2;
                     cpu_stopped = true;
+                    cycle = 4;
                     break;
                 }
 
@@ -363,6 +389,7 @@ class CPU
                     //On memory map row 1x column x1 fetch 16 bit and assign to DE register
                     r->de = fetch_16();
                     r->PC += 3;
+                    cycle = 12;
                     break;
 
                 }
@@ -373,6 +400,7 @@ class CPU
                     //On memory map row 1x column x2 write value in register A to address stored in DE register
                     b->write_8(r->de, r->a);
                     r->PC += 1;
+                    cycle = 8;
                     break;
                 }
 
@@ -382,6 +410,7 @@ class CPU
                     //On memory map row 1x column x3 increment de register
                     r->de += 1;
                     r->PC += 1;
+                    cycle = 8;
                     break;
 
                 }
@@ -392,6 +421,7 @@ class CPU
                     //On memory map row 1x column x4 increment d register and call proper flags
                     inc8(r->d);
                     r->PC += 1;
+                    cycle = 4;
                     break;
                 }
 
@@ -401,6 +431,7 @@ class CPU
                     //On memory map row 1x column x5 decrement d register and call proper flags
                     dec8(r->d);
                     r->PC += 1;
+                    cycle = 4;
                     break;
                 }
 
@@ -410,6 +441,7 @@ class CPU
                     //On memory map row 1x column x6 fetch 8 bit and write to D register
                     r->d = fetch_8();
                     r->PC += 2;
+                    cycle = 8;
                     break;
                 }
 
@@ -427,8 +459,103 @@ class CPU
                     setC(bit7);
 
                     r->PC += 1;
+                    cycle = 4;
 
                     break;
+
+                }
+
+                case (0x18):
+                {
+                    // JP e8 2 12
+                    //On memory map row 1x column x8 jump PC register ahead by the value of 8bit signed int
+                    int8_t signJump = (int8_t)b->read_8(r->PC + 1);
+                    r->PC = r->PC + 2 + signJump;
+                    cycle = 12;
+                    break;
+                }
+                
+                case (0x19):
+                {
+                    // ADD HL, DE 1 8 - H L C
+                    //On memory map row 1x column x9 add value in DE register to HL register
+                    addHL(r->de);
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+
+                }
+
+                case (0x1A):
+                {
+                    // LD A [DE] 1 8 ----
+                    //On memory map row 1x column xA load contents of value at address stored in DE register to A register
+                    r->a = b->read_8(r->de);
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x1B):
+                {
+                    // DEC DE 1 8 ----
+                    //On memory map row 1x column xB decrement DE register
+                    r->de -= 1;
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x1C):
+                {
+                    // INC E 1 4 Z 0 H -
+                    //On memory map row 1x column xC increment e register
+                    r->e = inc8(r->e);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x1D):
+                {
+                    // DEC E 1 4 Z 1 H -
+                    //On memory map row 1x column xD increment e register
+                    r->e = dec8(r->e);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x01E):
+                {
+                    // LD E n8 2 8 ----
+                    //On memory map row 1x column xE load 8 bit address to e register
+                    r->e = fetch_8();
+                    r->PC += 2;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x1F):
+                {
+                    // RRA 1 4 0 0 0 C
+                    //On memory map row 1x column xF rotate accumulator bit to the right by one and do not wrap bit 0
+                    uint8_t bit0 = (r->a & 0x01);
+                    uint8_t oldC = (r->f & FLAG_C) ? 1:0;
+                    r->a = (r->a >> 1) | (oldC << 7);
+                    
+                    setZ(false);
+                    setN(false);
+                    setH(false);
+                    setC(bit0);
+
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x20):
+                {
 
                 }
                     
