@@ -148,11 +148,13 @@ class CPU
         }
 
         uint8_t dec8(uint8_t val){
+            
+            uint8_t old = val;
             val -= 1;
 
             setZ(val == 0);
             setN(true);
-            setH((val & 0x0F) == 0x00);
+            setH((old & 0x0F) == 0x00);
 
             return val;
         }
@@ -558,7 +560,7 @@ class CPU
                 {   
                     // JP NZ e8 2 12/8 (12 or 8) ----
                     //On memory map row 2x column x0 jump if z flag not set else do nothing
-                    uint8_t z =  (r->f * FLAG_Z) ? 1:0;
+                    bool z =  (r->f & FLAG_Z) ? 1:0;
                     if(!z)
                     {
                         int8_t signJump = (int8_t)b->read_8(r->PC + 1);
@@ -639,9 +641,352 @@ class CPU
 
                 case (0x27):
                 {
+                    // DAA 1 4 Z - 0 C
+                    //On memory map row 2x column x7 to BDC on register A
+                    uint8_t C = (r->f & FLAG_C) ? 1:0;
+                    uint8_t H = (r->f & FLAG_H) ? 1:0;
+                    uint8_t N = (r->f & FLAG_N) ? 1:0;
+                    uint8_t adjustment = 0;
+                    bool carry = C;
                     
+                    if(H || (!N && (r->a & 0x0F) > 0x09))
+                    {
+                        adjustment |= 0x06;
+                    }
+
+                    if(C || (!N && r->a > 0x99))
+                    {
+                        adjustment |= 0x60;
+                        carry = true;
+                    }
+
+
+
+                    if(N)
+                    {
+                        r->a -= adjustment;
+                    }
+                    else
+                    {
+                        r->a += adjustment;
+                    }
+
+                    setZ(r->a == 0);
+                    setH(false);
+                    setC(carry);
+
+                    r->PC += 1;
+                    cycle = 4;
+
+                    break;
                 }
-                    
+
+                case (0x28):
+                {
+                    // JP Z e8 2 12/8 (12 or 8) ----
+                    //On memory map row 2x column x8 jump if z flag set else do nothing
+                    bool z =  (r->f & FLAG_Z) ? 1:0;
+                    if(z)
+                    {
+                        int8_t signJump = (int8_t)b->read_8(r->PC + 1);
+                        r->PC += (2 + signJump);
+                        cycle = 12;
+                        
+
+                    }
+                    else
+                    {
+                        r->PC += 2;
+                        cycle = 8;
+                    }
+
+                    break;
+                }
+
+                case (0x29):
+                {   
+                    // ADD HL, HL 1  8 - 0 H C
+                    //On memory map row 2x column x9 add HL register to itself
+                    addHL(r->hl);
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+
+                } 
+
+                case (0x2A):
+                {
+                    // LD A, [HL+] 1 8 ----
+                    //On memory map row 2x column xA load value at address stored in HL to register A then increment HL
+                    r->a = b->read_8(r->hl);
+                    r->hl += 1;
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x2B):
+                {
+                    // DEC HL 1  8 ----
+                    //On memory map row 2x column xB decrement value in HL register
+                    r->hl -= 1;
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x2C):
+                {
+                    // INC L 1  4 Z 0 H -
+                    //On memory map row 2x column xC increment value in register L
+                    r->l = inc8(r->l);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x2D):
+                {
+                    // DEC L 1  4 Z 1 H -
+                    //On memory map row 2x column xD decremnt value in register L
+                    r->l = dec8(r->l);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x2E):
+                {
+                    // LD L, n8 2  8
+                    //On memory map row 2x column xE fetch 8 bit value and load to register L
+                    r->l = fetch_8();
+                    r->PC += 2;
+                    cycle = 8;
+                    break; 
+                }
+
+                case (0x2F):
+                {
+                    // CPL 1  4 - 1 1 -
+                    //On memory map row 2x column xF invert register A and manually set flag
+                    r->a = ~r->a;
+                    setN(true);
+                    setH(true);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x30):
+                {
+                    // JP NC e8 2 12/8 (12 or 8) ----
+                    //On memory map row 3x column x0 jump if c flag set else do nothing
+                    bool c =  (r->f & FLAG_C) ? 1:0;
+                    if(!c)
+                    {
+                        int8_t signJump = (int8_t)b->read_8(r->PC + 1);
+                        r->PC += (2 + signJump);
+                        cycle = 12;
+                        
+
+                    }
+                    else
+                    {
+                        r->PC += 2;
+                        cycle = 8;
+                    }
+
+                    break;
+                }
+
+                case (0x31):
+                {
+                    // LD SP, n16 3  12 - - - -
+                    // On memory map row 3x column x1 fetch and load 16 bit value to SP register
+                    r->SP = fetch_16();
+                    r->PC += 3;
+                    cycle = 12;
+                    break;
+                }
+
+                case (0x32):
+                {
+                    // LD [HL-], A 1 8 ----
+                    //On memory map row 3x column x2 load the value of A register to HL register and decrement after
+                    b->write_8(r->hl, r->a);
+                    r->hl--;
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x33):
+                {
+                    // INC SP 1  8 - - - -
+                    //On memory map row 3x column x3 increment SP register
+                    r->SP += 1;
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x34):
+                {
+                    // INC [HL] 1 12 Z 0 H -
+                    //On memory map row 3x column x4 in increment the value stored at the address in HL register
+
+                    uint8_t val = b->read_8(r->hl);
+                    setH((val & 0x0F) == 0x0F);
+
+                    val++;
+
+                    b->write_8(r->hl, val);
+
+                    setZ(val == 0);
+                    setN(0);
+
+                    r->PC += 1;
+                    cycle = 12;
+                    break;
+                }
+
+                case (0x35):
+                {
+                    // DEC [HL] 1  12 Z 1 H -
+                    //On memory map row 3x column x5 in decrement the value stored at the address in HL register
+                    uint8_t val = b->read_8(r->hl);
+                    setH((val & 0x0F) == 0x00);
+
+                    val--;
+
+                    b->write_8(r->hl, val);
+
+                    setZ(val == 0);
+                    setN(1);
+
+                    r->PC += 1;
+                    cycle = 12;
+                    break;
+                }
+
+                case (0x36):
+                {
+                    // LD [HL], n8 2  12 - - - -
+                    //On memory map row 3x column x6 fetch 8 bit val and write to HL register
+                    b->write_8(r->hl, fetch_8());
+                    r->PC += 2;
+                    cycle = 12;
+                    break;
+                }
+
+                case (0x37):
+                {
+                    // SCF 1  4 - 0 0 1
+                    //On memory map row 3x column x7 set flags h n and c
+                    setC(true);
+                    setN(false);
+                    setH(false);
+
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x38):
+                {
+                    // JP C e8 2 12/8 (12 or 8) ----
+                    //On memory map row 3x column x8 jump if C flag set else do nothing
+                    bool z =  (r->f & FLAG_C) ? 1:0;
+                    if(z)
+                    {
+                        int8_t signJump = (int8_t)b->read_8(r->PC + 1);
+                        r->PC += (2 + signJump);
+                        cycle = 12;
+                        
+
+                    }
+                    else
+                    {
+                        r->PC += 2;
+                        cycle = 8;
+                    }
+
+                    break;
+                }
+
+                case (0x39):
+                {
+                    // ADD HL, SP 1  8 - 0 H C
+                    //On memory map row 3x column x9 add SP register to HL register
+                    addHL(r->SP);
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x3A):
+                {
+                    // LD A, [HL-] 1  8 - - - -
+                    //On memory map row 3x column xA load value at address stored in HL to register A then decrement HL
+                    r->a = b->read_8(r->hl);
+                    r->hl -= 1;
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x3B):
+                {
+                    // DEC SP 1  8 - - - -
+                    //On memory map row 3x column xB decremnt SP register
+                    r->SP -= 1;
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x3C):
+                {
+                    // INC A 1  4 Z 0 H -
+                    //On memory map row 3x column xC increment register A
+                    r->a = inc8(r->a);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x3D):
+                {
+                    // DEC A 1  4 Z 1 H -
+                    //On memory map row 3x column xD decrement register A
+                    r->a = dec8(r->a);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x3E):
+                {
+                    // LD A, n8 2  8 - - - -
+                    //On memory map row 3x column xE fetch and load 8 bit value to register A
+                    r->a = fetch_8();
+                    r->PC += 2;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x3F):
+                {
+                    // CCF 1  4 - 0 0 C
+                    //On memory map row 3x column xF set c flag to opposite of what it is
+                    bool c =  (r->f & FLAG_C) ? 1:0;
+                    setC(!c);
+                    setH(false);
+                    setN(false); 
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
             }
 
             return 0;
