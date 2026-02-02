@@ -82,7 +82,9 @@ class CPU
         const uint8_t FLAG_H = 1 << 5;
         const uint8_t FLAG_C = 1 << 4;
 
-        bool cpu_stopped = false; 
+        bool cpu_stopped = false;
+        bool isHalted = false; 
+        bool ime;
     
     public:
 
@@ -173,7 +175,109 @@ class CPU
             setC(result > 0xFFFF);
         }
 
+        bool checkInteruption(){
+            uint8_t IF = b->read_8(0xFF0F);
+            uint8_t IE = b->read_8(0xFFFF);
+            return ((IE & IF) != 0);
+        }
+
+        void add(uint8_t val){
+
+            uint8_t a = r->a;
+
+            uint16_t result = a + val;
+
+            r->a = (uint8_t)result;
+
+            setZ(r->a == 0); //Set Z flag if register A value is now 0
+            setN(false); //Set N flag to 0
+            setH((a & 0x0F) + (val & 0x0F) > 0x0F); //Set H flag to 1 if the low 4 bits added together are greater the 4 bits
+            setC(result > 0xFF); //Set C flag to 1 if result is greater than 8 bits 
+        }
+
+        void sub(uint8_t val){
+
+            uint8_t a = r->a;
+
+            uint16_t result = a - val;
+
+            r->a = (uint8_t)result;
+
+            setZ(r->a == 0); //Set Z flag if register A value is now 0
+            setN(true); //Set N flag to 1
+            setH((a & 0x0F) < (val & 0x0F)); //Set H flag to 1 if the lower bits of val are greater then the lower bit val of register a
+            setC(a < val); //Set C flag to 1 if val is larger the register A value because that means it would be less than 0;
+
+        }
+
+        void adc(uint8_t val){
+            uint8_t a = r->a;
+            int c_in = (r->f & FLAG_C) ? 1:0;
+
+            uint16_t result = a + val + c_in;
+
+            r->a = (uint8_t)result;
+
+            setZ(r->a == 0); //Set Z flag if register A value is now 0
+            setN(false); //Set N flag to 0
+            setH(((a & 0x0F) + (val & 0x0F) + c_in) > 0x0F); //Set H flag to 1 if the low 4 bits added together are greater the 4 bits
+            setC(result > 0xFF); //Set C flag to 1 if result is greater than 8 bits 
+        }
+
+        void sbc(uint8_t val){
+            uint8_t a = r->a;
+            int c_in = (r->f & FLAG_C) ? 1:0;
+
+            uint16_t result = a - val - c_in;
+
+            r->a = (uint8_t)result;
+
+            setZ(r->a == 0); //Set Z flag if register A value is now 0
+            setN(true); //Set N flag to 0
+            setH((a & 0x0F) < ((val & 0x0F) + c_in)); //Set H flag to 1 if the low 4 bits added together are greater the 4 bits
+            setC( a < (val +c_in)); //Set C flag to 1 if result is greater than 8 bits 
+        }
+
+        void and_a(uint8_t val){
+
+            r->a &= val;
+
+            setZ(r->a == 0);
+            setN(false);
+            setH(true);
+            setC(false);
+        }
+
+        void xor_a(uint8_t val){
+
+            r->a ^= val;
+
+            setZ(r->a == 0);
+            setN(false);
+            setH(false);
+            setC(false);
+        }
+        
+        void or_a(uint8_t val) {
+            r->a |= val;
+
+            setZ(r->a == 0);
+            setN(false);
+            setH(false);
+            setC(false);
+        }
+
         uint8_t step(Bus *b, registers *r){
+
+            //Check if the cpu is halted
+            if(isHalted){
+
+                if(checkInteruption()){
+                    isHalted = false;
+                }
+
+                return 4;
+            }
 
             //Read the opCode from PC register
             uint8_t opCode = b->read_8(r->PC);
@@ -987,6 +1091,1129 @@ class CPU
                     cycle = 4;
                     break;
                 }
+
+                case (0x40):
+                {
+                    // LD B, B 1  4 - - - -
+                    //On memory map row 4x column x0 load value in register B to register B (Basically NOP)
+                    r->b = r->b;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x41):
+                {
+                    // LD B, C 1  4 - - - -
+                    //On memory map row 4x column x1 load value in register C to register B
+                    r->b = r->c;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x42):
+                {
+                    // LD B, D 1  4 - - - -
+                    //On memory map row 4x column x2 load value in register D to register B
+                    r->b = r->d;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x43):
+                {
+                    // LD B, E 1  4 - - - -
+                    //On memory map row 4x column x3 load value in register E to register B
+                    r->b = r->e;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x44):
+                {
+                    // LD B, H 1  4 - - - -
+                    //On memory map row 4x column x4 load value in register H to register B
+                    r->b = r->h;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x45):
+                {
+                    // LD B, L 1  4 - - - -
+                    //On memory map row 4x column x5 load value in register L to register B
+                    r->b = r->l;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x46):
+                {
+                    // LD B, [HL] 1  8 - - - -
+                    //On memory map row 4x column x6 load value at address in register HL to register B
+                    r->b = b->read_8(r->hl);
+                    r->PC += 1;
+                    cycle = 8;
+                    break;                   
+                }
+
+                case (0x47):
+                {
+                    // LD B, A 1  4 - - - -
+                    //On memory map row 4x column x7 load value in register A to register B
+                    r->b = r->a;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x48):
+                {
+                    // LD C, B 1  4 - - - -
+                    //On memory map row 4x column x8 load value in register B to register C
+                    r->c = r->b;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x49):
+                {
+                    // LD C, c 1  4 - - - -
+                    //On memory map row 4x column x9 load value in register C to register C (Basically NOP)
+                    r->c = r->c;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x4A):
+                {
+                    // LD C, D 1  4 - - - -
+                    //On memory map row 4x column xA load value in register D to register C
+                    r->c = r->d;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x4B):
+                {
+                    // LD C, E 1  4 - - - -
+                    //On memory map row 4x column xB load value in register E to register C
+                    r->c = r->e;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x4C):
+                {
+                    // LD C, H 1  4 - - - -
+                    //On memory map row 4x column xC load value in register H to register C
+                    r->c = r->h;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x4D):
+                {
+                    // LD C, L 1  4 - - - -
+                    //On memory map row 4x column xD load value in register L to register C
+                    r->c = r->l;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x4E):
+                {
+                    // LD C, [HL] 1  8 - - - -
+                    //On memory map row 4x column xE load value at address in register HL to register C
+                    r->c = b->read_8(r->hl);
+                    r->PC += 1;
+                    cycle = 8;
+                    break;                   
+                }
+
+                case (0x4F):
+                {
+                    // LD C, A 1  4 - - - -
+                    //On memory map row 4x column xF load value in register A to register C
+                    r->c = r->a;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x50):
+                {
+                    // LD D, B 1  4 - - - -
+                    //On memory map row 5x column x0 load value in register B to register D
+                    r->d = r->b;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x51):
+                {
+                    // LD D, C 1  4 - - - -
+                    //On memory map row 5x column x1 load value in register C to register D
+                    r->d = r->c;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x52):
+                {
+                    // LD D, D 1  4 - - - -
+                    //On memory map row 5x column x2 load value in register D to register D (Basically NOP)
+                    r->d = r->d;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+                
+
+                case (0x53):
+                {
+                    // LD D, E 1  4 - - - -
+                    //On memory map row 5x column x3 load value in register E to register D
+                    r->d = r->c;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x54):
+                {
+                    // LD D, H 1  4 - - - -
+                    //On memory map row 5x column x4 load value in register H to register D
+                    r->d = r->h;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x55):
+                {
+                    // LD D, L 1  4 - - - -
+                    //On memory map row 5x column x5 load value in register L to register D
+                    r->d = r->l;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x56):
+                {
+                    // LD D, [HL] 1  8 - - - -
+                    //On memory map row 5x column x6 load value to address in register HL to register D
+                    r->d = b->read_8(r->hl);
+                    r->PC += 1;
+                    cycle = 8;
+                    break;                   
+                }
+
+                case (0x57):
+                {
+                    // LD D, A 1  4 - - - -
+                    //On memory map row 5x column x7 load value in register A to register D
+                    r->d = r->a;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x58):
+                {
+                    // LD E, B 1  4 - - - -
+                    //On memory map row 5x column x8 load value in register B to register E
+                    r->e = r->b;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+                
+                case (0x59):
+                {
+                    // LD E, C 1  4 - - - -
+                    //On memory map row 5x column x9 load value in register C to register E
+                    r->e = r->c;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x5A):
+                {
+                    // LD E, D 1  4 - - - -
+                    //On memory map row 5x column xA load value in register D to register E
+                    r->e = r->d;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x5B):
+                {
+                    // LD E, E 1  4 - - - -
+                    //On memory map row 5x column xB load value in register E to register E (Basically NOP)
+                    r->e = r->e;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x5C):
+                {
+                    // LD E, H 1  4 - - - -
+                    //On memory map row 5x column xC load value in register H to register E
+                    r->e = r->h;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x5D):
+                {
+                    // LD E, L 1  4 - - - -
+                    //On memory map row 5x column xD load value in register L to register E
+                    r->e = r->l;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x5E):
+                {
+                    // LD E, [HL] 1  8 - - - -
+                    //On memory map row 5x column xE load value to address in register HL to register E
+                    r->e = r->b;
+                    r->PC += 1;
+                    cycle = 8;
+                    break;                   
+                }
+
+                case (0x5F):
+                {
+                    // LD E, A 1  4 - - - -
+                    //On memory map row 5x column xF load value in register A to register E
+                    r->e = r->a;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x60):
+                {
+                    // LD H, B 1  4 - - - -
+                    //On memory map row 6x column x0 load value in register B to register H
+                    r->h = r->b;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x61):
+                {
+                    // LD H, C 1  4 - - - -
+                    //On memory map row 6x column x1 load value in register C to register H
+                    r->h = r->c;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x62):
+                {
+                    // LD H, D 1  4 - - - -
+                    //On memory map row 6x column x2 load value in register D to register H
+                    r->h = r->d;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x63):
+                {
+                    // LD H, E 1  4 - - - -
+                    //On memory map row 6x column x3 load value in register E to register H
+                    r->h = r->e;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x64):
+                {
+                    // LD H, H 1  4 - - - -
+                    //On memory map row 6x column x4 load value in register H to register H (Basically NOP)
+                    r->h = r->b;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x65):
+                {
+                    // LD H, L 1  4 - - - -
+                    //On memory map row 6x column x0 load value in register L to register H
+                    r->h = r->l;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x66):
+                {
+                    // LD H, [HL] 1  8 - - - -
+                    //On memory map row 6x column x6 load value to address in register HL to register H
+                    r->h = b->read_8(r->hl);
+                    r->PC += 1;
+                    cycle = 8;
+                    break;                   
+                }
+
+                case (0x67):
+                {
+                    // LD H, A 1  4 - - - -
+                    //On memory map row 6x column x7 load value in register A to register H
+                    r->h = r->a;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;                   
+                }
+
+                case (0x68):
+                {
+                    // LD L, B 1  4 - - - -
+                    //On memory map row 6x column x8 load value in register B to register L
+                    r->l = r->b;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x69):
+                {
+                    // LD L, C 1  4 - - - -
+                    //On memory map row 6x column x9 load value in register C to register L
+                    r->l = r->c;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+                
+                case (0x6A):
+                {
+                    // LD L, D 1  4 - - - -
+                    //On memory map row 6x column x8 load value in register D to register L
+                    r->l = r->d;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x6B):
+                {
+                    // LD L, E 1  4 - - - -
+                    //On memory map row 6x column xB load value in register E to register L
+                    r->l = r->e;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x6C):
+                {
+                    // LD L, H  1  4 - - - -
+                    //On memory map row 6x column xC load value in register H to register L
+                    r->l = r->h;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x6D):
+                {
+                    // LD L, L 1  4 - - - -
+                    //On memory map row 6x column x8 load value in register L to register L (Basically NOP)
+                    r->l = r->l;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x6E):
+                {
+                    // LD L, [HL] 1  8 - - - -
+                    //On memory map row 6x column xE load value to address in register HL to register L
+                    r->l = b->read_8(r->hl);
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x6F):
+                {
+                    // LD L, A 1  4 - - - -
+                    //On memory map row 6x column xF load value in register A to register L
+                    r->l = r->a;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x70):
+                {
+                    // LD [HL], B 1  8 - - - -
+                    //On memory map row 7x column x0 load value in register B to the address in register HL
+                    b->write_8(r->hl,r->b);
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x71):
+                {
+                    // LD [HL], C 1  8 - - - -
+                    //On memory map row 7x column x1 load value in register C to the address in register HL
+                    b->write_8(r->hl,r->c);
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x72):
+                {
+                    // LD [HL], D 1  8 - - - -
+                    //On memory map row 7x column x2 load value in register D to the address in register HL
+                    b->write_8(r->hl,r->d);
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x73):
+                {
+                    // LD [HL], E 1  8 - - - -
+                    //On memory map row 7x column x3 load value in register E to the address in register HL
+                    b->write_8(r->hl,r->e);
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x74):
+                {
+                    // LD [HL], H 1  8 - - - -
+                    //On memory map row 7x column x4 load value in register H to the address in register HL
+                    b->write_8(r->hl,r->h);
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x75):
+                {
+                    // LD [HL], L 1  8 - - - -
+                    //On memory map row 7x column x5 load value in register L to the address in register HL
+                    b->write_8(r->hl,r->l);
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x76):
+                {
+                    // HALT 1  $ - - - -
+                    //On memory map row 7x column x6 set the isHalted var to true so gameboy halts any further instructions
+                    isHalted = true;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x77):
+                {
+                    // LD [HL], A 1  8 - - - -
+                    //On memory map row 7x column x7 load value in register A to the address in register HL
+                    b->write_8(r->hl,r->a);
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x78):
+                {
+                    // LD A, B 1  4 - - - -
+                    //On memory map row 7x column x8 load value in register B to register A
+                    r->a = r->b;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x79):
+                {
+                    // LD A, C 1  4 - - - -
+                    //On memory map row 7x column x9 load value in register C to register A
+                    r->a = r->c;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+
+                case (0x7A):
+                {
+                    // LD A, D 1  4 - - - -
+                    //On memory map row 7x column xA load value in register D to register A
+                    r->a = r->d;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x7B):
+                {
+                    // LD A, E 1  4 - - - -
+                    //On memory map row 7x column xB load value in register E to register A
+                    r->a = r->e;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x7C):
+                {
+                    // LD A, H 1  4 - - - -
+                    //On memory map row 7x column xC load value in register H to register A
+                    r->a = r->h;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x7D):
+                {
+                    // LD A, L 1  4 - - - -
+                    //On memory map row 7x column xD load value in register L to register A
+                    r->a = r->l;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x7E):
+                {
+                    // LD A, [HL] 1  8 - - - -
+                    //On memory map row 7x column xF load value at address in register HL to register A
+                    r->a = r->b;
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x7F):
+                {
+                    // LD A, A 1  4 - - - -
+                    //On memory map row 7x column xF load value in register A to register A (Basically NOP)
+                    r->a = r->a;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x80):
+                {
+                    // ADD A, B 1  4 Z 0 H C
+                    //On memory map row 8x column x0 add value in register B to value in register A
+                    add(r->b);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x81):
+                {
+                    // ADD A, C 1  4 Z 0 H C
+                    //On memory map row 8x column x1 add value in register C to value in register A
+                    add(r->c);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x82):
+                {
+                    // ADD A, D 1  4 Z 0 H C
+                    //On memory map row 8x column x2 add value in register D to value in register A
+                    add(r->d);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x83):
+                {
+                    // ADD A, E 1  4 Z 0 H C
+                    //On memory map row 8x column x3 add value in register E to value in register A
+                    add(r->e);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x84):
+                {
+                    // ADD A, H 1  4 Z 0 H C
+                    //On memory map row 8x column x4 add value in register H to value in register A
+                    add(r->h);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x85):
+                {
+                    // ADD A, L 1  4 Z 0 H C
+                    //On memory map row 8x column x5 add value in register L to value in register A
+                    add(r->l);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x86):
+                {
+                    // ADD A, [HL] 1  4 Z 0 H C
+                    //On memory map row 8x column x6 add value at address stored in register HL to value in register A
+                    add(b->read_8(r->hl));
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x87):
+                {
+                    // ADD A, A 1  4 Z 0 H C
+                    //On memory map row 8x column x7 add value in register A to value in register A
+                    add(r->a);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x88):
+                {
+                    // ADC A, B 1  4 Z 0 H C
+                    //On memory map row 8x column x8 add value in register B to value in register A plus c_in from C flag
+                    adc(r->b);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x89):
+                {
+                    // ADC A, C 1  4 Z 0 H C
+                    //On memory map row 8x column x9 add value in register C to value in register A plus c_in from C flag
+                    adc(r->c);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x8A):
+                {
+                    // ADC A, D 1  4 Z 0 H C
+                    //On memory map row 8x column xA add value in register D to value in register A plus c_in from C flag
+                    adc(r->d);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x8B):
+                {
+                    // ADC A, E 1  4 Z 0 H C
+                    //On memory map row 8x column xB add value in register E to value in register A plus c_in from C flag
+                    adc(r->e);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x8C):
+                {
+                    // ADC A, H 1  4 Z 0 H C
+                    //On memory map row 8x column xC add value in register H to value in register A plus c_in from C flag
+                    adc(r->h);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x8D):
+                {
+                    // ADC A, L 1  4 Z 0 H C
+                    //On memory map row 8x column xD add value in register L to value in register A plus c_in from C flag
+                    adc(r->l);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x8E):
+                {
+                    // ADC A, [HL] 1  8 Z 0 H C
+                    //On memory map row 8x column xE add value at address in register HL to value in register A plus c_in from C flag
+                    adc(b->read_8(r->hl));
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x8F):
+                {
+                    // ADC A, A 1  4 Z 0 H C
+                    //On memory map row 8x column xF add value in register A to value in register A plus c_in from C flag
+                    adc(r->a);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x90):
+                {
+                    // SUB A, B 1  4 Z 1 H C
+                    //On memory map row 9x column x0 subtract value in register B from value in register A
+                    sub(r->b);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x91):
+                {
+                    // SUB A, C 1  4 Z 1 H C
+                    //On memory map row 9x column x1 subtract value in register C from value in register A
+                    sub(r->c);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x92):
+                {
+                    // SUB A, D 1  4 Z 1 H C
+                    //On memory map row 9x column x2 subtract value in register D from value in register A
+                    sub(r->d);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x93):
+                {
+                    // SUB A, E 1  4 Z 1 H C
+                    //On memory map row 9x column x3 subtract value in register E from value in register A
+                    sub(r->e);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x94):
+                {
+                    // SUB A, H 1  4 Z 1 H C
+                    //On memory map row 9x column x4 subtract value in register H from value in register A
+                    sub(r->h);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x95):
+                {
+                    // SUB A, L 1  4 Z 1 H C
+                    //On memory map row 9x column x5 subtract value in register L from value in register A
+                    sub(r->l);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x96):
+                {
+                    // SUB A, [HL] 1  8 Z 1 H C
+                    //On memory map row 9x column x6 subtract value at address in register HL from value in register A
+                    sub(b->read_8(r->hl));
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x97):
+                {
+                    // SUB A, A 1  4 Z 1 H C
+                    //On memory map row 9x column x7 subtract value in register A from value in register A
+                    sub(r->a);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x98):
+                {
+                    // SBC A, B 1  4 Z 1 H C
+                    //On memory map row 9x column x8 subtract value in register B and c_in from C flag from value in register A
+                    sbc(r->b);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x99):
+                {
+                    // SBC A, C 1  4 Z 1 H C
+                    //On memory map row 9x column x9 subtract value in register C and c_in from C flag from value in register A
+                    sbc(r->c);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x9A):
+                {
+                    // SBC A, D 1  4 Z 1 H C
+                    //On memory map row 9x column xA subtract value in register D and c_in from C flag from value in register A
+                    sbc(r->d);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x9B):
+                {
+                    // SBC A, E 1  4 Z 1 H C
+                    //On memory map row 9x column xD subtract value in register E and c_in from C flag from value in register A
+                    sbc(r->e);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x9C):
+                {
+                    // SBC A, H 1  4 Z 1 H C
+                    //On memory map row 9x column xC subtract value in register H and c_in from C flag from value in register A
+                    sbc(r->h);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x9D):
+                {
+                    // SBC A, L 1  4 Z 1 H C
+                    //On memory map row 9x column xD subtract value in register L and c_in from C flag from value in register A
+                    sbc(r->l);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0x9E):
+                {
+                    // SBC A, [HL] 1  8 Z 1 H C
+                    //On memory map row 9x column xE subtract value at address in register HL and c_in from C flag from value in register A
+                    sbc(b->read_8(r->hl));
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0x9F):
+                {
+                    // SBC A, A 1  4 Z 1 H C
+                    //On memory map row 9x column xF subtract value in register A and c_in from C flag from value in register A
+                    sbc(r->a);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xA0):
+                {
+                    // AND A, B 1  4 Z 0 1 0
+                    //On memory map row Ax column x0 set register A to be the result of register A & register B
+                    and_a(r->b);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xA1):
+                {
+                    // AND A, C 1  4 Z 0 1 0
+                    //On memory map row Ax column x1 set register A to be the result of register A & register C
+                    and_a(r->c);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xA2):
+                {
+                    // AND A, D 1  4 Z 0 1 0
+                    //On memory map row Ax column x0 set register A to be the result of register A & register D
+                    and_a(r->d);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xA3):
+                {
+                    // AND A, E 1  4 Z 0 1 0
+                    //On memory map row Ax column x0 set register A to be the result of register A & register E
+                    and_a(r->e);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xA4):
+                {
+                    // AND A, H 1  4 Z 0 1 0
+                    //On memory map row Ax column x4 set register A to be the result of register A & register H
+                    and_a(r->h);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xA5):
+                {
+                    // AND A, L 1  4 Z 0 1 0
+                    //On memory map row Ax column x5 set register A to be the result of register A & register L
+                    and_a(r->l);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xA6):
+                {
+                    // AND A, [HL] 1  8 Z 0 1 0
+                    //On memory map row Ax column x6 set register A to be the result of register A & value at address in register HL
+                    and_a(b->read_8(r->hl));
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0xA7):
+                {
+                    // AND A, E 1  4 Z 0 1 0
+                    //On memory map row Ax column x7 set register A to be the result of register A & register A
+                    and_a(r->a);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xA8):
+                {
+                    // XOR A, B 1  4 Z 0 0 0
+                    //On memory map row Ax column x8 set register A to be the result of register A XOR register B
+                    xor_a(r->b);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xA9):
+                {
+                    // XOR A, C 1  4 Z 0 0 0
+                    //On memory map row Ax column x9 set register A to be the result of register A XOR register C
+                    xor_a(r->c);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xAA):
+                {
+                    // XOR A, D 1  4 Z 0 0 0
+                    //On memory map row Ax column xA set register A to be the result of register A XOR register D
+                    xor_a(r->d);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xAB):
+                {
+                    // XOR A, E 1  4 Z 0 0 0
+                    //On memory map row Ax column xB set register A to be the result of register A XOR register E
+                    xor_a(r->e);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xAC):
+                {
+                    // XOR A, H 1  4 Z 0 0 0
+                    //On memory map row Ax column xC set register A to be the result of register A XOR register H
+                    xor_a(r->h);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xAD):
+                {
+                    // XOR A, L 1  4 Z 0 0 0
+                    //On memory map row Ax column xD set register A to be the result of register A XOR register L
+                    xor_a(r->l);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xAE):
+                {
+                    // XOR A, [HL] 1  8 Z 0 0 0
+                    //On memory map row Ax column xE set register A to be the result of register A XOR value at address in register HL 
+                    xor_a(b->read_8(r->hl));
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0xAF):
+                {
+                    // XOR A, A 1  4 Z 0 0 0
+                    //On memory map row Ax column xF set register A to be the result of register A XOR register A
+                    xor_a(r->a);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
             }
 
             return 0;

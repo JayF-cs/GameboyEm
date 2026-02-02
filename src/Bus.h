@@ -5,7 +5,7 @@
 class Bus
 {
 private:
-    uint8_t memory[65536];
+    uint8_t memory[65536]{};
 public:
     
     uint8_t read_8(uint16_t address){
