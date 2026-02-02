@@ -267,6 +267,45 @@ class CPU
             setC(false);
         }
 
+        void cmp(uint8_t val) {
+            uint8_t a = r->a;
+            uint16_t result = a - val;
+
+            setZ((uint8_t)result == 0); 
+            setN(true); 
+            setH((a & 0x0F) < (val & 0x0F)); 
+            setC(a < val); 
+        }
+
+        uint16_t pop16(){
+
+            //Read first byte of stack pointer
+            uint8_t lowByte = b->read_8(r->SP);
+            r->SP += 1;
+
+            //Read second byte of stack pointer
+            uint8_t highByte = b->read_8(r->SP);
+            r->SP += 1;
+
+            //Set PC register to combonation of High and Low bytes
+            return (highByte << 8) | lowByte;
+
+        }
+
+
+        void push(uint16_t val){
+
+            //Write high byte first
+            r->SP -= 1;
+            b->write_8(r->SP, (val >> 8) & 0xFF);
+            
+
+            //Write low byte
+            r->SP -= 1;
+            b->write_8(r->SP, val & 0xFF);
+
+        }
+
         uint8_t step(Bus *b, registers *r){
 
             //Check if the cpu is halted
@@ -573,7 +612,7 @@ class CPU
 
                 case (0x18):
                 {
-                    // JP e8 2 12
+                    // JR e8 2 12
                     //On memory map row 1x column x8 jump PC register ahead by the value of 8bit signed int
                     int8_t signJump = (int8_t)b->read_8(r->PC + 1);
                     r->PC = r->PC + 2 + signJump;
@@ -662,7 +701,7 @@ class CPU
 
                 case (0x20):
                 {   
-                    // JP NZ e8 2 12/8 (12 or 8) ----
+                    // JR NZ e8 2 12/8 (12 or 8) ----
                     //On memory map row 2x column x0 jump if z flag not set else do nothing
                     bool z =  (r->f & FLAG_Z) ? 1:0;
                     if(!z)
@@ -787,7 +826,7 @@ class CPU
 
                 case (0x28):
                 {
-                    // JP Z e8 2 12/8 (12 or 8) ----
+                    // JR Z e8 2 12/8 (12 or 8) ----
                     //On memory map row 2x column x8 jump if z flag set else do nothing
                     bool z =  (r->f & FLAG_Z) ? 1:0;
                     if(z)
@@ -883,7 +922,7 @@ class CPU
 
                 case (0x30):
                 {
-                    // JP NC e8 2 12/8 (12 or 8) ----
+                    // JR NC e8 2 12/8 (12 or 8) ----
                     //On memory map row 3x column x0 jump if c flag set else do nothing
                     bool c =  (r->f & FLAG_C) ? 1:0;
                     if(!c)
@@ -998,7 +1037,7 @@ class CPU
 
                 case (0x38):
                 {
-                    // JP C e8 2 12/8 (12 or 8) ----
+                    // JR C e8 2 12/8 (12 or 8) ----
                     //On memory map row 3x column x8 jump if C flag set else do nothing
                     bool z =  (r->f & FLAG_C) ? 1:0;
                     if(z)
@@ -2214,6 +2253,383 @@ class CPU
                     break;
                 }
 
+                case (0xB0):
+                {
+                    // OR A, B 1  4 Z 0 0 0
+                    //On memory map row Bx column x0 set register to be the result of register A or register B
+                    or_a(r->b);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xB1):
+                {
+                    // OR A, C 1  4 Z 0 0 0
+                    //On memory map row Bx column x1 set register to be the result of register A or register C
+                    or_a(r->c);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xB2):
+                {
+                    // OR A, D 1  4 Z 0 0 0
+                    //On memory map row Bx column x2 set register to be the result of register A or register D
+                    or_a(r->d);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xB3):
+                {
+                    // OR A, E 1  4 Z 0 0 0
+                    //On memory map row Bx column x3 set register to be the result of register A or register E
+                    or_a(r->e);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+                
+                case (0xB4):
+                {
+                    // OR A, H 1  4 Z 0 0 0
+                    //On memory map row Bx column x4 set register to be the result of register A or register H
+                    or_a(r->h);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xB5):
+                {
+                    // OR A, L 1  4 Z 0 0 0
+                    //On memory map row Bx column x5 set register to be the result of register A or register L
+                    or_a(r->l);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xB6):
+                {
+                    // OR A, [HL] 1  4 Z 0 0 0
+                    //On memory map row Bx column x6 set register to be the result of register A or value at address in register HL
+                    or_a(b->read_8(r->hl));
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0xB7):
+                {
+                    // OR A, A 1  4 Z 0 0 0
+                    //On memory map row Bx column x7 set register to be the result of register A or register A
+                    or_a(r->a);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xB8):
+                {
+                    // CP A, B 1  4 Z 1 H C
+                    //On memory map row Bx column x8 subtract register B from register A, but don't save value just use to set flags
+                    cmp(r->b);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xB9):
+                {
+                    // CP A, C 1  4 Z 1 H C
+                    //On memory map row Bx column x9 subtract register C from register A, but don't save value just use to set flags
+                    cmp(r->c);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xBA):
+                {
+                    // CP A, D 1  4 Z 1 H C
+                    //On memory map row Bx column xA subtract register D from register A, but don't save value just use to set flags
+                    cmp(r->d);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xBB):
+                {
+                    // CP A, E 1  4 Z 1 H C
+                    //On memory map row Bx column xB subtract register E from register A, but don't save value just use to set flags
+                    cmp(r->e);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xBC):
+                {
+                    // CP A, H 1  4 Z 1 H C
+                    //On memory map row Bx column xC subtract register H from register A, but don't save value just use to set flags
+                    cmp(r->h);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xBD):
+                {
+                    // CP A, L 1  4 Z 1 H C
+                    //On memory map row Bx column xD subtract register L from register A, but don't save value just use to set flags
+                    cmp(r->l);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+                
+                case (0xBE):
+                {
+                    // CP A, [HL] 1  8 Z 1 H C
+                    //On memory map row Bx column x8 subtract value at address in register HL from register A, but don't save value just use to set flags
+                    cmp(b->read_8(r->hl));
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0xBF):
+                {
+                    // CP A, A 1  4 Z 1 H C
+                    //On memory map row Bx column xF subtract register A from register A, but don't save value just use to set flags
+                    cmp(r->a);
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xC0):
+                {
+                    // RET NZ 1  20/8 
+                    //On memory map row Cx column x0 set PC register to the first 2 bytes popped of the the stack
+                    bool z =  (r->f & FLAG_Z) ? 1:0;
+                    if(!z)
+                    {
+                        r->PC = pop16();
+                        cycle = 20;
+                    }
+                    else
+                    {
+                        r->PC += 1;
+                        cycle = 8;
+                    }
+                    break;
+                }
+
+                case (0xC1):
+                {
+                    // POP BC 1  12 - - - -
+                    //On memory map row Cx column x1 pop 16 bit value of stack, put that value in BC register
+                    r->bc = pop16();
+                    r->PC += 1;
+                    cycle = 12;
+                    break;
+                }
+
+                case (0xC2):
+                {
+                    // JP NZ, a16 3  16/12 - - - -
+                    //On memory map row Cx column x2 read address from PC and jump to that set PC to that address if Z flag not set
+                    bool z =  (r->f & FLAG_Z) ? 1:0;
+                    if(!z)
+                    {
+                        uint16_t address = b->read_16(r->PC + 1);
+                        r->PC = address;
+                        cycle = 16;
+                    }
+                    else
+                    {
+                        r->PC += 3;
+                        cycle = 12;
+                    }
+                    break;
+                }
+
+                case 0xC3: // JP a16
+                {
+                    // JP a16 3  16 - - - -
+                    //On memory map row Cx column x3 read address from PC and jump to that set PC to that address
+                    r->PC = b->read_16(r->PC + 1);
+                    cycle = 16;
+                    break;
+                }
+
+                case 0xC4:
+                {
+                    // CALL NZ, a16 3  24/12 - - - -
+                    //On memory map row Cx column x4 if z flag not set push the next instruction (r->pc + 3) to the stack and set target address to PC
+                    bool z =  (r->f & FLAG_Z) ? 1:0;
+                    uint16_t target_address = b->read_16(r->PC + 1);
+                    if(!z)
+                    {
+                        push(r->PC + 3);
+                        r->PC  = target_address;
+                        cycle = 24;
+                    }
+                    else
+                    {
+                        r->PC += 3;
+                        cycle = 12;
+                    }
+                    break;
+                }
+
+                case (0xC5):
+                {
+                    // PUSH BC 1  16  - - - -
+                    //On memory map row Cx column x5 push register BC to stack
+                    push(r->bc);
+                    r->PC += 1;
+                    cycle = 16;
+                    break;
+                }
+
+                case (0xC6):
+                {
+                    // ADD A, n8 2  8 Z 0 H C
+                    //On memory map row Cx column x6 fetch 8 bit value and add to register A
+                    uint8_t val = fetch_8();
+                    add(val);
+                    r->PC += 2;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0xC7):
+                {
+                    // RST $00 1  16 - - - -
+                    //On memory map row Cx column x7 push PC + 1 to stack and set PC to 0x00
+                    push(r->PC + 1);
+                    r->PC = 0x00;
+                    cycle = 16;
+                    break;
+                }
+
+                case (0xC8):
+                {
+                    // RET Z 1  20/8 
+                    //On memory map row Cx column x8 set PC register to the first 2 bytes popped of the the stack
+                    bool z =  (r->f & FLAG_Z) ? 1:0;
+                    if(z)
+                    {
+                        r->PC = pop16();
+                        cycle = 20;
+                    }
+                    else
+                    {
+                        r->PC += 1;
+                        cycle = 8;
+                    }
+                    break;
+                }
+
+                case (0xC9):
+                {
+                    // RET 1  16  - - - -
+                    //On memory map row column x9 set PC register to the first 2 bytes popped off the stack don't check z flag
+                    r->PC = pop16();
+                    cycle = 16;
+                    break;
+                }
+
+                case (0xCA):
+                {
+                    // JP NZ, a16 3  16/12 - - - -
+                    //On memory map row Cx column xA read address from PC and jump to that set PC to that address if Z flag set
+                    bool z =  (r->f & FLAG_Z) ? 1:0;
+                    if(z)
+                    {
+                        uint16_t address = b->read_16(r->PC + 1);
+                        r->PC = address;
+                        cycle = 16;
+                    }
+                    else
+                    {
+                        r->PC += 3;
+                        cycle = 12;
+                    }
+                    break;
+                }
+
+                case (0xCB):
+                {
+                    // PREFIX 1  4 - - - -
+                    //On memory map row Cx column xB have to call CB opcode function for a instruction seperate from this
+                    uint8_t prefix = b->read_8(r->PC);  
+                    r->PC += 1;                       
+                    uint8_t extendedOp = b->read_8(r->PC);  
+                    r->PC += 1;                       
+                    //executeCBOpcode(extendedOp);
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xCC):
+                {
+                    // CALL Z, a16 3  24/12 - - - -
+                    //On memory map row Cx column xC if z flag set push the next instruction (r->pc + 3) to the stack and set target address to PC
+                    bool z =  (r->f & FLAG_Z) ? 1:0;
+                    uint16_t target_address = b->read_16(r->PC + 1);
+                    if(z)
+                    {
+                        push(r->PC + 3);
+                        r->PC  = target_address;
+                        cycle = 24;
+                    }
+                    else
+                    {
+                        r->PC += 3;
+                        cycle = 12;
+                    }
+                    break;
+                }
+
+                case (0xCD):
+                {
+                    // CALL a16 3  24/12 - - - -
+                    //On memory map row Cx column x4 push the next instruction (r->pc + 3) to the stack and set target address to PC don't check Z flag
+                    uint16_t target_address = b->read_16(r->PC + 1);
+                    push(r->PC + 3);
+                    r->PC  = target_address;
+                    cycle = 24;
+                    break;
+                }
+
+                case (0xCE):
+                {
+                     // ADC A, n8 2  8 Z 0 H C
+                    //On memory map row Cx column xE fetch 8 bit value and add to register A plus c_in
+                    uint8_t val = fetch_8();
+                    adc(val);
+                    r->PC += 2;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0xCF):
+                {
+                    // RST $08 1  16 - - - -
+                    //On memory map row Cx column xF push PC + 1 to stack and set PC to 0x08
+                    push(r->PC + 1);  
+                    r->PC = 0x08; 
+                    cycle = 16;
+                    break;
+                }
             }
 
             return 0;
