@@ -84,7 +84,7 @@ class CPU
 
         bool cpu_stopped = false;
         bool isHalted = false; 
-        bool ime;
+        bool ime = false;
     
     public:
 
@@ -292,7 +292,6 @@ class CPU
 
         }
 
-
         void push(uint16_t val){
 
             //Write high byte first
@@ -306,8 +305,81 @@ class CPU
 
         }
 
+        void interupts(){
+
+            //Set ime to false to prevent immediate interupt call back
+            ime  = false;
+
+            //Get the value for IF (If fired) and IE (If enabled)
+            uint8_t IF = b->read_8(0xFF0F);
+            uint8_t IE = b->read_8(0xFFFF);
+
+            //Check what the interupt was by anding the 2 bytes of data
+            uint8_t pendingInterupt = IF & IE;
+
+            //Check if the VRAM bit was set
+            if(pendingInterupt & 0x01){
+                //Write IF back to memory but remove the bit that is handled
+                b->write_8(0xFF0F, IF & ~0x01);
+                //Push current value of PC to stack
+                push(r->PC);
+                //Set PC to VRAM interrupt source
+                r->PC = 0x40;
+                return;
+            }
+
+            //Check if LCD bit is set
+            if(pendingInterupt & 0x02){
+                //Write IF back to memory but remove the bit that is handled
+                b->write_8(0xFF0F, IF & ~0x02);
+                //Push current value of PC to stack
+                push(r->PC);
+                //Set PC to VRAM interrupt source
+                r->PC = 0x48;
+                return;
+            }
+
+            //Check if Timer bit is set
+            if(pendingInterupt & 0x04){
+                //Write IF back to memory but remove the bit that is handled
+                b->write_8(0xFF0F, IF & ~0x04);
+                //Push current value of PC to stack
+                push(r->PC);
+                //Set PC to VRAM interrupt source
+                r->PC = 0x50;
+                return;
+            }
+
+            //Check if Serial bit is set
+            if(pendingInterupt & 0x08){
+                //Write IF back to memory but remove the bit that is handled
+                b->write_8(0xFF0F, IF & ~0x08);
+                //Push current value of PC to stack
+                push(r->PC);
+                //Set PC to VRAM interrupt source
+                r->PC = 0x58;
+                return;
+            }
+
+            //Check if Joypad bit was set
+            if(pendingInterupt & 0x10){
+                //Write IF back to memory but remove the bit that is handled
+                b->write_8(0xFF0F, IF & ~0x10);
+                //Push current value of PC to stack
+                push(r->PC);
+                //Set PC to VRAM interrupt source
+                r->PC = 0x60;
+                return;
+            }
+
+        }
+
         uint8_t step(Bus *b, registers *r){
 
+            if(ime && checkInteruption()){
+                interupts();
+                return 20;
+            }
             //Check if the cpu is halted
             if(isHalted){
 
@@ -2549,7 +2621,7 @@ class CPU
 
                 case (0xCA):
                 {
-                    // JP NZ, a16 3  16/12 - - - -
+                    // JP Z, a16 3  16/12 - - - -
                     //On memory map row Cx column xA read address from PC and jump to that set PC to that address if Z flag set
                     bool z =  (r->f & FLAG_Z) ? 1:0;
                     if(z)
@@ -2630,6 +2702,470 @@ class CPU
                     cycle = 16;
                     break;
                 }
+
+                case (0xD0):
+                {
+                    // RET NC 1  20/8 
+                    //On memory map row Dx column x0 set PC register to the first 2 bytes popped of the the stack
+                    bool c =  (r->f & FLAG_C) ? 1:0;
+                    if(!c)
+                    {
+                        r->PC = pop16();
+                        cycle = 20;
+                    }
+                    else
+                    {
+                        r->PC += 1;
+                        cycle = 8;
+                    }
+                    break;
+                }
+
+                case (0xD1):
+                {
+                    // POP DE 1  12 - - - -
+                    //On memory map row Dx column x1 pop 16 bit value of stack, put that value in DE register
+                    r->de = pop16();
+                    r->PC += 1;
+                    cycle = 12;
+                    break;
+                }
+
+                case (0xD2):
+                {
+                    // JP NX, a16 3  16/12 - - - -
+                    //On memory map row Cx column x2 read address from PC and jump to that set PC to that address if Z flag not set
+                    bool c =  (r->f & FLAG_C) ? 1:0;
+                    if(!c)
+                    {
+                        uint16_t address = b->read_16(r->PC + 1);
+                        r->PC = address;
+                        cycle = 16;
+                    }
+                    else
+                    {
+                        r->PC += 3;
+                        cycle = 12;
+                    }
+                    break;
+                }
+
+                case (0xD4):
+                {
+                    // CALL NC, a16 3  24/12 - - - -
+                    //On memory map row Dx column x4 if z flag not set push the next instruction (r->pc + 3) to the stack and set target address to PC
+                    bool c =  (r->f & FLAG_C) ? 1:0;
+                    uint16_t target_address = b->read_16(r->PC + 1);
+                    if(!c)
+                    {
+                        push(r->PC + 3);
+                        r->PC  = target_address;
+                        cycle = 24;
+                    }
+                    else
+                    {
+                        r->PC += 3;
+                        cycle = 12;
+                    }
+                    break;   
+                }
+
+                case (0xD5):
+                {
+                    // PUSH DE 1  16  - - - -
+                    //On memory map row Dx column x5 push register DE to stack
+                    push(r->de);
+                    r->PC += 1;
+                    cycle = 16;
+                    break;
+                }
+
+                case (0xD6):
+                {
+                    // SUB A, n8 2  8 Z 0 H C
+                    //On memory map row Dx column x6 fetch 8 bit value and subtract to register A
+                    uint8_t val = fetch_8();
+                    sub(val);
+                    r->PC += 2;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0xD7):
+                {
+                    // RST $10 1  16 - - - -
+                    //On memory map row Dx column x7 push PC + 1 to stack and set PC to 0x10
+                    push(r->PC + 1);
+                    r->PC = 0x10;
+                    cycle = 16;
+                    break;
+                }
+
+                case (0xD8):
+                {
+                    // RET Z 1  20/8 
+                    //On memory map row Dx column x8 set PC register to the first 2 bytes popped of the the stack
+                    bool c =  (r->f & FLAG_C) ? 1:0;
+                    if(c)
+                    {
+                        r->PC = pop16();
+                        cycle = 20;
+                    }
+                    else
+                    {
+                        r->PC += 1;
+                        cycle = 8;
+                    }
+                    break;
+                }
+
+                case (0xD9):
+                {
+                    // RET 1  16  - - - -
+                    //On memory map row column x9 set PC register to the first 2 bytes popped off the stack don't check z flag
+                    r->PC = pop16();
+                    ime = true;
+                    cycle = 16;
+                    break;
+                }
+
+                case (0xDA):
+                {
+                    // JP C, a16 3  16/12 - - - -
+                    //On memory map row Cx column xA read address from PC and jump to that set PC to that address if Z flag set
+                    bool c =  (r->f & FLAG_C) ? 1:0;
+                    if(c)
+                    {
+                        uint16_t address = b->read_16(r->PC + 1);
+                        r->PC = address;
+                        cycle = 16;
+                    }
+                    else
+                    {
+                        r->PC += 3;
+                        cycle = 12;
+                    }
+                    break;
+                }
+
+                case (0xDC):
+                {
+                    // CALL C, a16 3  24/12 - - - -
+                    //On memory map row Dx column xC if z flag not set push the next instruction (r->pc + 3) to the stack and set target address to PC
+                    bool c =  (r->f & FLAG_C) ? 1:0;
+                    uint16_t target_address = b->read_16(r->PC + 1);
+                    if(c)
+                    {
+                        push(r->PC + 3);
+                        r->PC  = target_address;
+                        cycle = 24;
+                    }
+                    else
+                    {
+                        r->PC += 3;
+                        cycle = 12;
+                    }
+                    break; 
+                }
+
+                case (0xDE):
+                {
+                    // SBC A, n8 2  8 Z 0 H C
+                    //On memory map row Dx column x6 fetch 8 bit value and subtract that and c_in from register A
+                    uint8_t val = fetch_8();
+                    sbc(val);
+                    r->PC += 2;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0xDF):
+                {
+                    // RST $18 1  16 - - - -
+                    //On memory map row Dx column xF push PC + 1 to stack and set PC to 0x18
+                    push(r->PC + 1);
+                    r->PC = 0x18;
+                    cycle = 16;
+                    break;
+                }
+
+                case (0xE0):
+                {
+                    // LDH [a8], A 2  12 - - - -
+                    //On memory map row Ex column x0 load immediate next 8 bit val after opcodes and write the contents of register A to 0xFF00 + value
+                    uint8_t a = b->read_8(r->PC + 1);
+                    b->write_8(0xFF00 + a,r->a);
+                    r->PC += 2;
+                    cycle = 12;
+                    break;
+                }
+                
+                case (0xE1):
+                {
+                    // POP HL 1  12 - - - -
+                    //On memory map row ex column x1 pop 16 bit value of stack, put that value in HL register
+                    r->hl = pop16();
+                    r->PC += 1;
+                    cycle = 12;
+                    break;
+                }
+
+                case (0xE2):
+                {
+                    // LDH [C], A 1  8 - - - -
+                    //On memory map row Ex column x2 load immediate next 8 bit val after opcodes and write the contents of register A to 0xFF00 + register C
+                    b->write_8(0xFF00 + r->c,r->a);
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0xE5):
+                {
+                    // PUSH HL 1  16  - - - -
+                    //On memory map row Ex column x5 push register DE to stack
+                    push(r->hl);
+                    r->PC += 1;
+                    cycle = 16;
+                    break;
+                }
+                
+                case (0xE6):
+                {
+                    // AND A, n8 2  8 Z 0 1 0
+                    //On memory map row Ex column x6 fetch 8 bit value and bitwise and it with register A
+                    uint8_t val = fetch_8();
+                    and_a(val);
+                    r->PC += 2;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0xE7):
+                {
+                    // RST $20 1  16 - - - -
+                    //On memory map row Ex column x7 push PC + 1 to stack and set PC to 0x20
+                    push(r->PC + 1);
+                    r->PC = 0x20;
+                    cycle = 16;
+                    break;
+                }
+
+                case (0xE8):
+                {
+                    // ADD SP, e8 2  16 0 0 H C
+                    //On memory map row Ex column x8 add signed 8-bit value at the byte after PC register to Stack Pointer
+                    uint16_t sp = r->SP;
+                    int8_t e8 = (int8_t)b->read_8(r->PC + 1);
+
+                    uint16_t result = sp + e8;
+
+                    r->SP = (uint16_t)result;
+
+                    setZ(false); //Set Z flag if register A value is now 0
+                    setN(false); //Set N flag to 0
+                    setH((sp & 0xF) + ((uint8_t)e8 & 0xF) > 0xF); //Set H flag to 1 if the low 4 bits added together are greater the 4 bits
+                    setC(((sp & 0xFF) + (uint8_t)e8) > 0xFF); //Set C flag to 1 if result is greater than 8 bits 
+
+                    r->PC += 2;
+                    cycle = 16;
+                    break;
+
+                }
+
+                case (0xE9):
+                {
+                    // JP HL 1  4 - - - -
+                    //On memory map row Ex column x9 jump PC register to HL
+                    r->PC = r->hl;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xEA):
+                {
+                    // LDH [a16], A 3  16 - - - -
+                    //On memory map row Ex column xA load immediate next 16 bit val after opcodes and write the contents of register A to 0xFF00 + value
+                    uint8_t a = b->read_16(r->PC + 1);
+                    b->write_8( a,r->a);
+                    r->PC += 3;
+                    cycle = 16;
+                    break;
+                }
+
+                case (0xEE):
+                {
+                    // XOR A, n8 2  8 Z 0 1 0
+                    //On memory map row Ex column xE fetch 8 bit value and XOR it with register A
+                    uint8_t val = fetch_8();
+                    and_a(val);
+                    r->PC += 2;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0xEF):
+                {
+                    // RST $28 1  16 - - - -
+                    //On memory map row Ex column xF push PC + 1 to stack and set PC to 0x28
+                    push(r->PC + 1);
+                    r->PC = 0x28;
+                    cycle = 16;
+                    break;
+                }
+
+                case (0xF0):
+                {
+                    // LDH A, [a8] 2  12 - - - -
+                    //On memory map row Fx column x0 load immediate next 8 bit val after opcodes and write the contents of 0xFF00 + value to 
+                    uint8_t a = b->read_8(r->PC + 1);
+                    r->a = b->read_8(0xFF00 + a);
+                    r->PC += 2;
+                    cycle = 12;
+                    break;
+
+                }
+
+                case (0xF1):
+                {
+                    // POP AF 1  12 Z N H C
+                    ////On memory map row Fx column x1 pop of stack set af register to that value, set flags based on bit 4 - 7 in the register
+                    r->af = pop16();
+                    uint8_t flags = r->af & 0xF0;
+
+                    setZ(flags & FLAG_Z ? true:false);
+                    setN(flags & FLAG_N ? true:false);
+                    setH(flags & FLAG_Z ? true:false);
+                    setC(flags & FLAG_Z ? true:false);
+
+                    r->PC += 1;
+                    cycle = 12;
+                    break;
+                }
+
+                case (0xF2):
+                {
+                     // LDH A, [C] 1, 8 - - - -
+                    //On memory map row Fx column x2 read value from address 0xFF00 + register c and set value to register A
+                    r->a = b->read_8(0xFF00 + r->c);
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0xF3):
+                {
+                    // DI 1  4 - - - -
+                    //On memory map row Fx column x3 disable ime
+                    ime = false;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xF5):
+                {
+                    // PUSH AF 1  16 - - - -
+                    //On memory map row Fx column x5 push AF to stack
+                    push(r->af);
+                    r->PC += 1;
+                    cycle = 16;
+                    break;
+                }
+
+                case (0xF6):
+                {
+                    // OR A, n8 2  8 Z 0 0 0
+                    //On memory map fetch 8 bit value and or it with register A and set register a to result
+                    uint8_t val = fetch_8();
+                    or_a(val);
+                    r->PC += 2;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0xF7):
+                {
+                    // RST $30 1  16 - - - -
+                    //On memory map row Fx column x7 push PC + 1 to stack and set PC to 0x30
+                    push(r->PC + 1);
+                    r->PC = 0x30;
+                    cycle = 16;
+                    break;
+                }
+
+                case (0xF8):
+                {
+                    // LD HL, SP + e8 2  12 0 0 H C
+                    //On memory map row Fx column x8 add signed 8-bit value at the byte after PC register to Stack Pointer set HL register to result
+                    uint16_t sp = r->SP;
+                    int8_t e8 = (int8_t)b->read_8(r->PC + 1);
+
+                    uint16_t result = sp + e8;
+
+                    setZ(false); //Set Z flag if register A value is now 0
+                    setN(false); //Set N flag to 0
+                    setH((sp & 0xF) + ((uint8_t)e8 & 0xF) > 0xF); //Set H flag to 1 if the low 4 bits added together are greater the 4 bits
+                    setC(((sp & 0xFF) + (uint8_t)e8) > 0xFF); //Set C flag to 1 if result is greater than 8 bits 
+
+                    r->PC += 2;
+                    cycle = 16;
+                    break;
+                }
+
+                case (0xF9):
+                {
+                    // LD SP, HL 1  8 - - - -
+                    //On memory map row Fx column x9 load register HL to stack pointer
+                    r->SP = r->hl;
+                    r->PC += 1;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0xFA):
+                {
+                    // LD A, [a16] 3  16 - - - -
+                    //On memory map row Fx column xA load immediate next 16 bit val after opcodes and write the contents of value to register A
+                    uint16_t a = b->read_16(r->PC + 1);
+                    r->a = b->read_8(a);
+                    r->PC += 3;
+                    cycle = 16;
+                    break;
+                }
+
+                case (0xFB):
+                {
+                    // EI 1  4 - - - -
+                    //On memory map row Fx column xB enable ime
+                    ime = true;
+                    r->PC += 1;
+                    cycle = 4;
+                    break;
+                }
+
+                case (0xFE):
+                {
+                    // CP A, n8 2  8 Z 1 H C
+                    //On memory map row Ex column xE fetch 8 bit value and compare it with register A
+                    uint8_t val = fetch_8();
+                    cmp(val);
+                    r->PC += 2;
+                    cycle = 8;
+                    break;
+                }
+
+                case (0xFF):
+                {
+                    // RST $38 1  16 - - - -
+                    //On memory map row Ex column xF push PC + 1 to stack and set PC to 0x38
+                    push(r->PC + 1);
+                    r->PC = 0x38;
+                    cycle = 16;
+                    break;
+                }
+
+
             }
 
             return 0;
