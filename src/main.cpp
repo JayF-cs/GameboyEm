@@ -14,7 +14,7 @@ int main(){
     Cartridge cart;
     Cartridge *c = &cart;
 
-    cart.loadVector("../ROMS/Tetris.gb");
+    cart.loadVector("./ROMS/Tetris.gb");
 
     ////////////////////////////////////////////////////////////
     //  Test Loading a ROM                                    //

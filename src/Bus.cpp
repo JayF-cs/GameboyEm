@@ -62,7 +62,7 @@ uint8_t Bus::read_8(uint16_t address) {
 uint16_t Bus::read_16(uint16_t address) {
     
     //Make temp vars for lower 8 bits an higher 8 bits
-    uint8_t low = read_8(address + 1);
+    uint8_t low = read_8(address);
     uint8_t high = read_8(address + 1);
     return (uint16_t)((high << 8) | low);
 }
