@@ -6,9 +6,9 @@ uint8_t ppu::getTileFromVRAM(int currentX, int pixelNum)
     Calculate indexes in tile map
     Tile map is 256 x 256 pixels
     Each tile is 8 pixels wide
-    Map Index Y = ((SCY + LY) % 256) / 8
-    Map Index X = ((SCX + current X position) % 256) / 8
-    The Pixel Row you are on = (SCY + LY) % 8
+    Tile Map Index Y = ((SCY + LY) % 256) / 8
+    Tile Map Index X = ((SCX + current X position) % 256) / 8
+    The Pixel Row of the tile you are on = (SCY + LY) % 8
     /////////////////////////////*/
     int tileMapIndexY = ((ppu::b->read_8(0xFF42) + ppu::b->read_8(0xFF44)) % 256)/8;
     int tileMapIndexX = ((ppu::b->read_8(0xFF43) + currentX) % 256)/8;
@@ -103,7 +103,7 @@ void ppu::compareLY()
     //IF LY == LYC set bit 2 and check if bit 6 oF STAT is set to see if need to write to IF
     if(ppu::b->read_8(0xFF44) == ppu::b->read_8(0xFF45))
     {
-        ppu::b->write_8(0xFF45, ppu::b->read_8(0xFF45) | 0x4);
+        ppu::b->write_8(0xFF45, ppu::b->read_8(0xFF41) | 0x4);
 
         if(ppu::b->read_8(0xFF41) & 0x40)
         {
@@ -135,11 +135,14 @@ void ppu::mode1()
 
 void ppu::mode2()
 {
+
+    ppu::tileCount = 0;
     //Check if MODE 2 interrupt bit is set in STAT
     if(ppu::b->read_8(0xFF41) & 0x20)
     {
         ppu::b->write_8(0xFF0F, ppu::b->read_8(0xFF0F) | 0x2);
     }
+
 
     //Track dots, but they kind of meaningless here since loop always goes 40 times
     ppu::dots = 0;
@@ -153,7 +156,7 @@ void ppu::mode2()
     //Keep track of number objects in vector
     int count = 0;
     
-    //Loop through all of OAH
+    //Loop through all of OAM
     for(int i = 0; i < 0xA0; i += 4)
     {
         //Check if max objects are in vector
@@ -176,7 +179,7 @@ void ppu::mode2()
             uint8_t objX = ppu::b->read_8(base + i + 1);
             uint8_t objInd = ppu::b->read_8(base + i + 2);
             uint8_t objFlags = ppu::b->read_8(base + i + 3);
-            object o = {objY, objX, objInd, objFlags};
+            object o = {objX, objY, objInd, objFlags};
             ppu::objects.push_back(o);
             count++;
         }
@@ -189,26 +192,69 @@ void ppu::mode2()
 
 void ppu::initialEnqueues()
 {
-    uint8_t startingX = ppu::b->read_8(0xFF43);
 
+    //Enqueue first 8 pixels
     for(int i = 0; i < 8; i++)
     {
-        ppu::bgFIFO.push(getTileFromVRAM(startingX + i, (startingX + i) % 8));
+        //Get pixel from VRAM
+        ppu::bgFIFO.push(getTileFromVRAM(ppu::tileCount, i));
         int size = ppu::objects.size();
+
+        //Go through and check if there are any objects on this pixel
         for(int j = 0; j < size; j++)
         {
-            if((ppu::objects[j].x - (startingX + i) < 8) && (startingX + i) < ppu::objects[j].x)
+            //Check if current pixel is within the objects 8 x 8 bounds
+            if(((ppu::tileCount + i) - (ppu::objects[j].x - 8)  < 8) && (ppu::tileCount + i) >= ppu::objects[j].x - 8)
             {
-                uint8_t obColor = getObjFromVRAM(ppu::objects[j], ppu::b->read_8(0xFF44) + ppu::objects[j].x - 8 ,ppu::b->read_8(0xFF44) + ppu::objects[j].y);
+                //Get object info and added it to queue
+                uint8_t obColor = getObjFromVRAM(ppu::objects[j], (ppu::tileCount + i) - (ppu::objects[j].x - 8) ,ppu::b->read_8(0xFF44) - (ppu::objects[j].y));
                 uint16_t obPalette = (ppu::objects[j].flags & 0x8) ? 0xFE49:0xFE48;
                 objPixel p = {obColor, obPalette, ppu::objects[j].flags};
                 ppu::obFIFO.push(p);
+                break;
             }
         }
     }
+    
+    //Increase tile count
+    ppu::tileCount += 8;
+
+    //Get rid of pixels before SCX
+    uint8_t SCX = ppu::b->read_8(0xFF43);
+    for(int i = 0; i < (SCX % 8) ; i++)
+    {
+        ppu::bgFIFO.pop();
+    }
 }
 
+void ppu::pixelFetcher()
+{
+    initialEnqueues();
 
+    for(int i = 0; i < 8; i++)
+    {
+        //Get pixel from VRAM
+        ppu::bgFIFO.push(getTileFromVRAM(ppu::tileCount, i));
+        int size = ppu::objects.size();
+
+        //Go through and check if there are any objects on this pixel
+        for(int j = 0; j < size; j++)
+        {
+            //Check if current pixel is within the objects 8 x 8 bounds
+            if(((ppu::tileCount + i) - (ppu::objects[j].x - 8)  < 8) && (ppu::tileCount + i) >= ppu::objects[j].x - 8)
+            {
+                //Get object info and added it to queue
+                uint8_t obColor = getObjFromVRAM(ppu::objects[j], (ppu::tileCount + i) - (ppu::objects[j].x - 8) ,ppu::b->read_8(0xFF44) - (ppu::objects[j].y));
+                uint16_t obPalette = (ppu::objects[j].flags & 0x8) ? 0xFE49:0xFE48;
+                objPixel p = {obColor, obPalette, ppu::objects[j].flags};
+                ppu::obFIFO.push(p);
+                break;
+            }
+        }
+    }
+
+    ppu::tileCount += 8;
+}
 
 void ppu::mode3()
 {

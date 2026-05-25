@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <vector>
+#include <queue>
 //#include <SDL2/SDL.h>
 #include "Bus.h"
 
@@ -20,6 +21,14 @@ struct object
     uint8_t flags;
 };
 
+struct objPixel
+{
+    uint8_t colorIndex;
+    uint16_t palette;
+    uint8_t flags;
+};
+
+
 class ppu
 {
 
@@ -27,7 +36,11 @@ class ppu
         Bus* b;
         PPU_modes mode;
         std::vector<object> objects;
+        std::queue<uint8_t> bgFIFO;
+        std::queue<objPixel> obFIFO;
+        uint8_t buffer[160];
         uint16_t dots;
+        int tileCount;
 
     public:
         ppu(Bus* bus) : b(bus) {}
@@ -39,11 +52,13 @@ class ppu
         void mode2();
         //Renders scanlines
         void mode3();
+        void initialEnqueues();
+        void pixelFetcher();
         //Fetches a pixel from VRAM
         uint8_t getTileFromVRAM(int currentX, int pixelNum);
+        uint8_t getObjFromVRAM(object obj, int currentX, int pixelNum);
         //Checks which pixel has priority between a BGP and OBP
         uint8_t priotiryChecker(uint8_t BGP_index, uint8_t OBJ_index, uint8_t flags);
         uint8_t getColor(uint16_t paletteAddr, uint8_t paletteIndex);
         void compareLY();
-        void STAT_interrupt();  
 };
