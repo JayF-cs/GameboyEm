@@ -7,10 +7,10 @@
 
 enum class PPU_modes : uint8_t
 {
-    H_blank, //MODE 0
-    V_blank, //MODE 1
-    getObjects, //MODE 2
-    display //MODE 3
+    MODE_0, //H Blank
+    MODE_1, //V Blank
+    MODE_2, //Get Objects
+    MODE_3 //Write to buffer
 };
 
 struct object
@@ -28,19 +28,19 @@ struct objPixel
     uint8_t flags;
 };
 
-
 class ppu
 {
 
     private:
         Bus* b;
-        PPU_modes mode;
+        PPU_modes mode = PPU_modes::MODE_2;
         std::vector<object> objects;
         std::queue<uint8_t> bgFIFO;
         std::queue<objPixel> obFIFO;
         uint8_t buffer[160];
-        uint16_t dots;
-        int tileCount;
+        uint16_t dots = 0;
+        int penalties = 0;
+        int tileCount = 0;
 
     public:
         ppu(Bus* bus) : b(bus) {}
@@ -57,8 +57,9 @@ class ppu
         //Fetches a pixel from VRAM
         uint8_t getTileFromVRAM(int currentX, int pixelNum);
         uint8_t getObjFromVRAM(object obj, int currentX, int pixelNum);
-        //Checks which pixel has priority between a BGP and OBP
-        uint8_t priotiryChecker(uint8_t BGP_index, uint8_t OBJ_index, uint8_t flags);
+        //Checks which pixel has priority between a BGP and OBP returns bool for BGP and false for OBP
+        bool priotiryChecker(uint8_t BGP_index, uint8_t OBJ_index, uint8_t flags);
         uint8_t getColor(uint16_t paletteAddr, uint8_t paletteIndex);
         void compareLY();
+        void tick(int cycles);
 };

@@ -68,29 +68,29 @@ uint8_t ppu::getObjFromVRAM(object obj, int pCol, int pRow)
     return high | low;
 }
 
-uint8_t ppu::priotiryChecker(uint8_t BGP_index, uint8_t OBJ_index, uint8_t flags)
+bool ppu::priotiryChecker(uint8_t BGP_index, uint8_t OBJ_index, uint8_t flags)
 {
     if(!(ppu::b->read_8(0xFF40) & 1))
     {
-        return OBJ_index;
+        return false;
     }
 
     if(OBJ_index == 0)
     {
-        return BGP_index;
+        return true;
     }
 
     if(BGP_index == 0)
     {
-        return OBJ_index;
+        return false;
     }
 
     if(flags >> 7)
     {
-        return BGP_index;
+        return true;
     }
 
-    return OBJ_index;
+    return false;
 }
 
 uint8_t ppu::getColor(uint16_t paletteAddr, uint8_t paletteIndex)
@@ -103,7 +103,7 @@ void ppu::compareLY()
     //IF LY == LYC set bit 2 and check if bit 6 oF STAT is set to see if need to write to IF
     if(ppu::b->read_8(0xFF44) == ppu::b->read_8(0xFF45))
     {
-        ppu::b->write_8(0xFF45, ppu::b->read_8(0xFF41) | 0x4);
+        ppu::b->write_8(0xFF41, ppu::b->read_8(0xFF41) | 0x4);
 
         if(ppu::b->read_8(0xFF41) & 0x40)
         {
@@ -135,17 +135,11 @@ void ppu::mode1()
 
 void ppu::mode2()
 {
-
-    ppu::tileCount = 0;
     //Check if MODE 2 interrupt bit is set in STAT
     if(ppu::b->read_8(0xFF41) & 0x20)
     {
         ppu::b->write_8(0xFF0F, ppu::b->read_8(0xFF0F) | 0x2);
     }
-
-
-    //Track dots, but they kind of meaningless here since loop always goes 40 times
-    ppu::dots = 0;
 
     //Clear the vector previous objects
     ppu::objects.clear();
@@ -162,7 +156,6 @@ void ppu::mode2()
         //Check if max objects are in vector
         if(count == 10)
         {
-            dots += 2;
             continue;
         }
 
@@ -183,11 +176,7 @@ void ppu::mode2()
             ppu::objects.push_back(o);
             count++;
         }
-
-        //Increment dots
-        dots += 2;
     }
-
 }
 
 void ppu::initialEnqueues()
@@ -214,6 +203,13 @@ void ppu::initialEnqueues()
                 break;
             }
         }
+
+        //Push padding object pixel if no object pixel
+        if(ppu::bgFIFO.size() != ppu::obFIFO.size())
+        {
+            objPixel p = {0, 0, 0};
+            ppu::obFIFO.push(p);
+        }
     }
     
     //Increase tile count
@@ -224,13 +220,13 @@ void ppu::initialEnqueues()
     for(int i = 0; i < (SCX % 8) ; i++)
     {
         ppu::bgFIFO.pop();
+        ppu::obFIFO.pop();
     }
 }
 
 void ppu::pixelFetcher()
 {
-    initialEnqueues();
-
+    //Fill up 8 pixels at a time
     for(int i = 0; i < 8; i++)
     {
         //Get pixel from VRAM
@@ -251,6 +247,13 @@ void ppu::pixelFetcher()
                 break;
             }
         }
+
+        //Push padding object pixel if no object pixel
+        if(ppu::bgFIFO.size() != ppu::obFIFO.size())
+        {
+            objPixel p = {0, 0, 0};
+            ppu::obFIFO.push(p);
+        }
     }
 
     ppu::tileCount += 8;
@@ -258,5 +261,125 @@ void ppu::pixelFetcher()
 
 void ppu::mode3()
 {
+    initialEnqueues();
 
+    int numPix = 0;
+
+    while(!(ppu::bgFIFO.empty()))
+    {
+        uint8_t bgp = bgFIFO.front();
+        bgFIFO.pop();
+        objPixel objp = obFIFO.front();
+        obFIFO.pop();
+        
+        uint8_t pixel;
+
+        //Check if BGP or OBJP have higher priority
+        bool priority = priotiryChecker(bgp, objp.colorIndex, objp.flags);
+        //Check
+        if(priority)
+        {
+            pixel = getColor(0xFF47, bgp);
+        }
+        else
+        {
+            pixel = getColor(objp.palette, objp.colorIndex);
+        }
+        
+        buffer[numPix++] = pixel;
+    }
+
+    while(numPix < 160)
+    {
+        pixelFetcher();
+
+        for(int i = 0; i < 8; i++)
+        {
+            if(numPix >= 160) break;
+
+            //Get a pixel from both queues
+            uint8_t bgp = bgFIFO.front();
+            bgFIFO.pop();
+            objPixel objp = obFIFO.front();
+            obFIFO.pop();
+
+            uint8_t pixel;
+
+            //Check if BGP or OBJP have higher priority
+            bool priority = priotiryChecker(bgp, objp.colorIndex, objp.flags);
+            //Check
+            if(priority)
+            {
+                pixel = getColor(0xFF47, bgp);
+            }
+            else
+            {
+                pixel = getColor(objp.palette, objp.colorIndex);
+            }
+            
+            buffer[numPix++] = pixel;
+        }
+    }
+}
+
+void ppu::tick(int cycles)
+{
+    if((b->read_8(0xFF40) & 0x80) == 0) return;
+
+    dots += cycles;
+
+    switch(mode)
+    {
+        case (PPU_modes::MODE_0):
+        {
+            if(dots >= 204)
+            {
+                dots -= 204;
+                uint8_t LY = b->read_8(0xFF44);
+                b->write_8(0xFF44, LY++);
+                mode = LY == 144 ? PPU_modes::MODE_1:PPU_modes::MODE_2;
+            }
+            break;
+        }
+
+        case (PPU_modes::MODE_1):
+        {
+            if(dots >= 456)
+            {
+                dots -= 456;
+                uint8_t LY = b->read_8(0xFF44);
+                LY++;
+                if(LY == 154)
+                {
+                    b->write_8(0xFF44, 0);
+                }
+                else
+                {
+                    b->write_8(0xFF44, LY);
+                }
+            }
+
+            break;
+        }
+
+        case (PPU_modes::MODE_2):
+        {
+            if(dots >= 80)
+            {
+                dots -= 80;
+                mode = PPU_modes::MODE_3;
+            };
+        }
+
+        case (PPU_modes::MODE_3):
+        {
+            if(dots >= 172)
+            {
+                dots -= 172;
+                mode = PPU_modes::MODE_3;
+            }
+        }
+        default:
+            break;
+    }
 }
