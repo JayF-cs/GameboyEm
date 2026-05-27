@@ -1,9 +1,9 @@
-//#include <SDL2/SDL.h>
 #include <iostream>
 #include "cpu.h"
 #include "Bus.h"
 #include "registers.h"
 #include "Cartridge.h"
+#include "ppu.h"
 
 int main(){
 
@@ -14,7 +14,7 @@ int main(){
     Cartridge cart;
     Cartridge *c = &cart;
 
-    cart.loadVector("./ROMS/Tetris.gb");
+    cart.loadVector("./ROMS/PokemonRed.gb");
 
     ////////////////////////////////////////////////////////////
     //  Test Loading a ROM                                    //

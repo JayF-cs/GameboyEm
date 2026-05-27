@@ -2,8 +2,9 @@
 #include <cstdint>
 #include <vector>
 #include <queue>
-//#include <SDL2/SDL.h>
+
 #include "Bus.h"
+#include "render.h"
 
 enum class PPU_modes : uint8_t
 {
@@ -11,6 +12,14 @@ enum class PPU_modes : uint8_t
     MODE_1, //V Blank
     MODE_2, //Get Objects
     MODE_3 //Write to buffer
+};
+
+enum class GBColors : uint8_t
+{
+    WHITE,
+    LIGHT_GRAY,
+    DARK_GRAY,
+    BLACK
 };
 
 struct object
@@ -38,12 +47,13 @@ class ppu
         std::queue<uint8_t> bgFIFO;
         std::queue<objPixel> obFIFO;
         uint8_t buffer[160];
+        uint32_t frame[144][160];
         uint16_t dots = 0;
         int penalties = 0;
         int tileCount = 0;
 
     public:
-        ppu(Bus* bus) : b(bus) {}
+        ppu(Bus* bus, Renderer* renderer) : b(bus) {}
         //HBlank - Mode 0
         void mode0();
         //VBlank - Mode 1
@@ -62,4 +72,7 @@ class ppu
         uint8_t getColor(uint16_t paletteAddr, uint8_t paletteIndex);
         void compareLY();
         void tick(int cycles);
+        void setModeSTAT();
+        void frameColor(GBColors color, uint8_t row, uint8_t col);
+        void lineToRender();
 };

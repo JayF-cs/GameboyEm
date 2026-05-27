@@ -98,6 +98,35 @@ uint8_t ppu::getColor(uint16_t paletteAddr, uint8_t paletteIndex)
     return ((b->read_8(paletteAddr) >> paletteIndex * 2) & 0x3);
 }
 
+void ppu::frameColor(GBColors color, uint8_t row, uint8_t col)
+{
+    switch (color)
+    {
+        case GBColors::WHITE:
+        {
+            frame[row][col] = 0x9BBC0FFF;
+            break;
+        } 
+        case GBColors::LIGHT_GRAY: 
+        {
+            frame[row][col] = 0x8BAC0FFF;
+            break;
+        }
+        case GBColors::DARK_GRAY:
+        {
+            frame[row][col] = 0x306230FF;
+            break;
+        } 
+        case GBColors::BLACK:
+        {
+            frame[row][col] = 0x0F380FFF;
+            break;
+        } 
+        default:
+            break;
+    }
+}
+
 void ppu::compareLY()
 {
     //IF LY == LYC set bit 2 and check if bit 6 oF STAT is set to see if need to write to IF
@@ -140,9 +169,6 @@ void ppu::mode2()
     {
         ppu::b->write_8(0xFF0F, ppu::b->read_8(0xFF0F) | 0x2);
     }
-
-    //Clear the vector previous objects
-    ppu::objects.clear();
 
     //Start of OAM
     int base = 0xFE00;
@@ -261,8 +287,6 @@ void ppu::pixelFetcher()
 
 void ppu::mode3()
 {
-    initialEnqueues();
-
     int numPix = 0;
 
     while(!(ppu::bgFIFO.empty()))
@@ -322,6 +346,13 @@ void ppu::mode3()
     }
 }
 
+void ppu::setModeSTAT()
+{
+    uint8_t STAT = (b->read_8(0xFF41) & 0x7D);
+    STAT = STAT | static_cast<uint8_t>(mode);
+    b->write_8(0xFF41, STAT);
+}
+
 void ppu::tick(int cycles)
 {
     if((b->read_8(0xFF40) & 0x80) == 0) return;
@@ -336,8 +367,25 @@ void ppu::tick(int cycles)
             {
                 dots -= 204;
                 uint8_t LY = b->read_8(0xFF44);
-                b->write_8(0xFF44, LY++);
+                LY++;
+                b->write_8(0xFF44, LY);
+                //Compare LY check for interrupt
+                compareLY();
+                //Check if this is last on screen scanline and set to appropriate mode
                 mode = LY == 144 ? PPU_modes::MODE_1:PPU_modes::MODE_2;
+                //Change STAT's mode bits
+                setModeSTAT();
+                //Call mode function
+                if(mode == PPU_modes::MODE_1) mode1();
+                else 
+                {
+                    //Clear the vector previous objects
+                    objects.clear();
+                    tileCount = 0;
+                    bgFIFO = {};
+                    obFIFO = {};
+                    mode2();
+                }
             }
             break;
         }
@@ -349,13 +397,31 @@ void ppu::tick(int cycles)
                 dots -= 456;
                 uint8_t LY = b->read_8(0xFF44);
                 LY++;
+                
                 if(LY == 154)
                 {
+                    //If LY is 154 mean completed all 154 scanlines reset LY to 0
                     b->write_8(0xFF44, 0);
+                    //Check for interrupt
+                    compareLY();
+                    mode = PPU_modes::MODE_2;
+
+                    //Change STATS mode bits
+                    setModeSTAT();
+
+                    //Clear the vector previous objects
+                    objects.clear();
+                    tileCount = 0;
+                    bgFIFO = {};
+                    obFIFO = {};
+
+                    //Start mode 2
+                    mode2();
                 }
                 else
                 {
                     b->write_8(0xFF44, LY);
+                    compareLY();
                 }
             }
 
@@ -368,7 +434,12 @@ void ppu::tick(int cycles)
             {
                 dots -= 80;
                 mode = PPU_modes::MODE_3;
+
+                setModeSTAT();
+                mode3();
             };
+
+            break;
         }
 
         case (PPU_modes::MODE_3):
@@ -376,10 +447,22 @@ void ppu::tick(int cycles)
             if(dots >= 172)
             {
                 dots -= 172;
-                mode = PPU_modes::MODE_3;
+                mode = PPU_modes::MODE_0;
+                setModeSTAT();
+                lineToRender();
+                mode0();
             }
         }
         default:
             break;
+    }
+}
+
+void ppu::lineToRender()
+{
+    uint8_t LY = b->read_8(0xFF44);
+    for(int i = 0; i < 160; i++)
+    {
+        frameColor(static_cast<GBColors>(buffer[i]), LY, i);
     }
 }
