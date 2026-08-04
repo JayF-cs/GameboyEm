@@ -57,5 +57,8 @@ void Renderer::update(uint32_t *buffer)
 
 void Renderer::cleanup()
 {
-    
+    SDL_DestroyTexture(texture);
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
 }

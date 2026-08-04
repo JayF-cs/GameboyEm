@@ -1,21 +1,24 @@
 #pragma once
 #include <iostream>
 #include <cstdint>
+#include <conio.h>
 
 class Bus;
 
-struct registers;
+struct Registers;
 
 class CPU {
     public:
         CPU();
         void connectBus(Bus* b);
-        void connectRegisters(registers* reg);
+        void connectRegisters(Registers* reg);
         uint8_t step();
+        bool imeGetter();
+        bool cpuStoppedGetter();
 
     private:
         Bus* b = nullptr;
-        registers* r = nullptr;
+        Registers* r = nullptr;
         uint64_t tCycles = 0;
 
         const uint8_t FLAG_Z = 1 << 7;
@@ -26,6 +29,11 @@ class CPU {
         bool cpu_stopped = false;
         bool isHalted = false;
         bool ime = false;
+        int ime_delay;
+        bool haltBug = false;
+        bool start = false;
+        int steps = 0;
+        
 
         // Helper declarations
         uint16_t fetch_16();
@@ -62,5 +70,6 @@ class CPU {
         void bit(uint8_t val, uint8_t check);
         uint8_t res(uint8_t val, uint8_t check);
         uint8_t set(uint8_t val, uint8_t check);
+
 };
 

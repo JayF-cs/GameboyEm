@@ -1,17 +1,25 @@
-//#include <SDL2/SDL.h>
 #include <iostream>
 #include "cpu.h"
 #include "Bus.h"
 #include "registers.h"
-//Initialize the CPU object
 
 CPU::CPU() {}
+
+bool CPU::imeGetter()
+{
+    return ime;
+}
+
+bool CPU::cpuStoppedGetter()
+{
+    return cpu_stopped;
+}
 
 void CPU::connectBus(Bus* b) {
     this->b = b;
 }
 
-void CPU::connectRegisters(registers* reg) {
+void CPU::connectRegisters(Registers* reg) {
     this->r = reg;
 }
 
@@ -103,7 +111,7 @@ void CPU::addHL(uint16_t reg){
 bool CPU::checkInteruption(){
     uint8_t IF = b->read_8(0xFF0F);
     uint8_t IE = b->read_8(0xFFFF);
-    return ((IE & IF) != 0);
+    return ((IE & IF & 0x1F) != 0);
 }
 
 void CPU::add(uint8_t val){
@@ -160,7 +168,7 @@ void CPU::sbc(uint8_t val){
     setZ(r->a == 0); //Set Z flag if register A value is now 0
     setN(true); //Set N flag to 0
     setH((a & 0x0F) < ((val & 0x0F) + c_in)); //Set H flag to 1 if the low 4 bits added together are greater the 4 bits
-    setC( a < (val +c_in)); //Set C flag to 1 if result is greater than 8 bits 
+    setC(result > 0xFF); //Set C flag to 1 if result is greater than 8 bits 
 }
 
 void CPU::and_a(uint8_t val){
@@ -601,6 +609,7 @@ int CPU::executeCBOpcode(uint8_t extendedInstruction){
 uint8_t CPU::step(){
 
     if(ime && checkInteruption()){
+        isHalted = false;
         interupts();
         return 20;
     }
@@ -616,9 +625,12 @@ uint8_t CPU::step(){
 
     //Read the opCode from PC register
     uint8_t opCode = b->read_8(r->PC);
+    bool hadHalt = haltBug;
+    haltBug = false;
 
     //Track cycle for step
     uint8_t cycle;
+
     
     //Based on pointer content preform an operation
     switch(opCode){
@@ -729,7 +741,8 @@ uint8_t CPU::step(){
         {
             // LD [a16], SP 3 20 ----
             //On memory map row 0x column x8 write stack pointer to address after opcode
-            b->write_16(r->PC + 1, r->SP);
+            uint16_t a = b->read_16(r->PC + 1);
+            b->write_16(a, r->SP);
             r->PC += 3;
             cycle = 20;
             break;
@@ -799,11 +812,10 @@ uint8_t CPU::step(){
         case(0x0F):
         {
             //RRCA 1 4 0 0 0 C
-            uint16_t bit0 = r->a;
+            uint16_t bit0 = r->a & 0x01;
             r->a = r->a >> 1;
-            bit0 = bit0 << 7;
-            r->a |= bit0;
-
+            r->a |= bit0 << 7;
+            
             setZ(false);
             setN(false);
             setH(false);
@@ -860,7 +872,7 @@ uint8_t CPU::step(){
         {
             // INC D 1 4 Z 0 H -
             //On memory map row 1x column x4 increment d register and call proper flags
-            inc8(r->d);
+            r->d = inc8(r->d);
             r->PC += 1;
             cycle = 4;
             break;
@@ -870,7 +882,7 @@ uint8_t CPU::step(){
         {
             // DEC D 1 4 Z 1 H -
             //On memory map row 1x column x5 decrement d register and call proper flags
-            dec8(r->d);
+            r->d = dec8(r->d);
             r->PC += 1;
             cycle = 4;
             break;
@@ -879,7 +891,7 @@ uint8_t CPU::step(){
         case (0x16):
         {
             // LD D n8 2 8 ----
-            //On memory map row 1x column x6 fetch 8 bit and write to D register
+            //On memory map row 1x column x6 fetch 8 bit and D register
             r->d = fetch_8();
             r->PC += 2;
             cycle = 8;
@@ -999,17 +1011,13 @@ uint8_t CPU::step(){
         {   
             // JR NZ e8 2 12/8 (12 or 8) ----
             //On memory map row 2x column x0 jump if z flag not set else do nothing
-            bool z =  (r->f & FLAG_Z) ? 1:0;
-            if(!z)
-            {
-                int8_t signJump = (int8_t)b->read_8(r->PC + 1);
-                r->PC += (2 + signJump);
+            int8_t signJump = (int8_t)b->read_8(r->PC + 1);
+            uint16_t target = r->PC + 2 + signJump;
+            bool z = (r->f & FLAG_Z) ? 1 : 0;
+            if(!z) {
+                r->PC = target;
                 cycle = 12;
-                
-
-            }
-            else
-            {
+            } else {
                 r->PC += 2;
                 cycle = 8;
             }
@@ -1052,7 +1060,7 @@ uint8_t CPU::step(){
         {
             // INC H 1 4 Z 0 H -
             //On memory map row 2x column x4 increment H register
-            r->hl = inc8(r->hl);
+            r->h = inc8(r->h);
             r->PC += 1;
             cycle = 4;
             break;
@@ -1062,7 +1070,7 @@ uint8_t CPU::step(){
         {
             // DEC H 1 4 Z 1 H -
             //On memory map row 2x column x5 decrement H register
-            r->hl = dec8(r->hl);
+            r->h = dec8(r->h);
             r->PC += 1;
             cycle = 4;
             break;
@@ -1072,7 +1080,7 @@ uint8_t CPU::step(){
         {
             // LD H n8 2 8 ----
             //On memory map row 2x column x6 fetch 8 bit value and assign to H register
-            r->hl = fetch_8();
+            r->h = fetch_8();
             r->PC += 2;
             cycle = 8;
             break;
@@ -1098,8 +1106,6 @@ uint8_t CPU::step(){
                 adjustment |= 0x60;
                 carry = true;
             }
-
-
 
             if(N)
             {
@@ -1150,7 +1156,6 @@ uint8_t CPU::step(){
             r->PC += 1;
             cycle = 8;
             break;
-
         } 
 
         case (0x2A):
@@ -1622,7 +1627,7 @@ uint8_t CPU::step(){
         {
             // LD D, E 1  4 - - - -
             //On memory map row 5x column x3 load value in register E to register D
-            r->d = r->c;
+            r->d = r->e;
             r->PC += 1;
             cycle = 4;
             break;                   
@@ -1732,7 +1737,7 @@ uint8_t CPU::step(){
         {
             // LD E, [HL] 1  8 - - - -
             //On memory map row 5x column xE load value to address in register HL to register E
-            r->e = r->b;
+            r->e = b->read_8(r->hl);
             r->PC += 1;
             cycle = 8;
             break;                   
@@ -1792,7 +1797,7 @@ uint8_t CPU::step(){
         {
             // LD H, H 1  4 - - - -
             //On memory map row 6x column x4 load value in register H to register H (Basically NOP)
-            r->h = r->b;
+            r->h = r->h;
             r->PC += 1;
             cycle = 4;
             break;                   
@@ -1972,8 +1977,16 @@ uint8_t CPU::step(){
         {
             // HALT 1  $ - - - -
             //On memory map row 7x column x6 set the isHalted var to true so gameboy halts any further instructions
-            isHalted = true;
-            r->PC += 1;
+            if(!ime && checkInteruption())
+            {
+                haltBug = true;
+                r->PC += 1;
+            }
+            else
+            {
+                isHalted = true;
+                r->PC += 1;
+            }
             cycle = 4;
             break;
         }
@@ -2053,7 +2066,7 @@ uint8_t CPU::step(){
         {
             // LD A, [HL] 1  8 - - - -
             //On memory map row 7x column xF load value at address in register HL to register A
-            r->a = r->b;
+            r->a = b->read_8(r->hl);
             r->PC += 1;
             cycle = 8;
             break;
@@ -2867,7 +2880,7 @@ uint8_t CPU::step(){
             // PREFIX 1  4 - - - -
             //On memory map row Cx column xB have to call CB opcode function for a instruction seperate from this
             uint8_t extendedOp = fetch_8();
-            r->PC += 1; 
+            r->PC += 2; 
             cycle = executeCBOpcode(extendedOp);
             break;
         }
@@ -3045,8 +3058,8 @@ uint8_t CPU::step(){
             // RET 1  16  - - - -
             //On memory map row column x9 set PC register to the first 2 bytes popped off the stack don't check z flag
             r->PC = pop16();
-            ime = true;
             cycle = 16;
+            ime = true;
             break;
         }
 
@@ -3186,7 +3199,7 @@ uint8_t CPU::step(){
             setZ(false); //Set Z flag if register A value is now 0
             setN(false); //Set N flag to 0
             setH((sp & 0xF) + ((uint8_t)e8 & 0xF) > 0xF); //Set H flag to 1 if the low 4 bits added together are greater the 4 bits
-            setC(((sp & 0xFF) + (uint8_t)e8) > 0xFF); //Set C flag to 1 if result is greater than 8 bits 
+            setC(((sp & 0xFF) + ((uint8_t)e8 & 0xFF)) > 0xFF); //Set C flag to 1 if result is greater than 8 bits 
 
             r->PC += 2;
             cycle = 16;
@@ -3207,7 +3220,7 @@ uint8_t CPU::step(){
         {
             // LDH [a16], A 3  16 - - - -
             //On memory map row Ex column xA load immediate next 16 bit val after opcodes and write the contents of register A to 0xFF00 + value
-            uint8_t a = b->read_16(r->PC + 1);
+            uint16_t a = b->read_16(r->PC + 1);
             b->write_8( a,r->a);
             r->PC += 3;
             cycle = 16;
@@ -3219,7 +3232,7 @@ uint8_t CPU::step(){
             // XOR A, n8 2  8 Z 0 1 0
             //On memory map row Ex column xE fetch 8 bit value and XOR it with register A
             uint8_t val = fetch_8();
-            and_a(val);
+            xor_a(val);
             r->PC += 2;
             cycle = 8;
             break;
@@ -3251,13 +3264,13 @@ uint8_t CPU::step(){
         {
             // POP AF 1  12 Z N H C
             ////On memory map row Fx column x1 pop of stack set af register to that value, set flags based on bit 4 - 7 in the register
-            r->af = pop16();
+            r->af = pop16() & 0xFFF0;
             uint8_t flags = r->af & 0xF0;
 
             setZ(flags & FLAG_Z ? true:false);
             setN(flags & FLAG_N ? true:false);
-            setH(flags & FLAG_Z ? true:false);
-            setC(flags & FLAG_Z ? true:false);
+            setH(flags & FLAG_H ? true:false);
+            setC(flags & FLAG_C ? true:false);
 
             r->PC += 1;
             cycle = 12;
@@ -3279,6 +3292,7 @@ uint8_t CPU::step(){
             // DI 1  4 - - - -
             //On memory map row Fx column x3 disable ime
             ime = false;
+            ime_delay = 0;
             r->PC += 1;
             cycle = 4;
             break;
@@ -3321,16 +3335,16 @@ uint8_t CPU::step(){
             //On memory map row Fx column x8 add signed 8-bit value at the byte after PC register to Stack Pointer set HL register to result
             uint16_t sp = r->SP;
             int8_t e8 = (int8_t)b->read_8(r->PC + 1);
-
             uint16_t result = sp + e8;
+            r->hl = result;
 
             setZ(false); //Set Z flag if register A value is now 0
             setN(false); //Set N flag to 0
             setH((sp & 0xF) + ((uint8_t)e8 & 0xF) > 0xF); //Set H flag to 1 if the low 4 bits added together are greater the 4 bits
-            setC(((sp & 0xFF) + (uint8_t)e8) > 0xFF); //Set C flag to 1 if result is greater than 8 bits 
+            setC(((sp & 0xFF) + ((uint8_t)e8 & 0xFF)) > 0xFF); //Set C flag to 1 if result is greater than 8 bits 
 
             r->PC += 2;
-            cycle = 16;
+            cycle = 12;
             break;
         }
 
@@ -3359,7 +3373,7 @@ uint8_t CPU::step(){
         {
             // EI 1  4 - - - -
             //On memory map row Fx column xB enable ime
-            ime = true;
+            ime_delay = 2;
             r->PC += 1;
             cycle = 4;
             break;
@@ -3389,5 +3403,16 @@ uint8_t CPU::step(){
 
     }
 
-    return 0;
+    if(ime_delay > 0)
+    {
+        ime_delay--;
+        if(ime_delay == 0) ime = true;
+    }
+
+    if(hadHalt)
+    {
+        r->PC -= 1;
+    }
+
+    return cycle;
 }

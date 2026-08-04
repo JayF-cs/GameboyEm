@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
 
-struct registers
+struct Registers
 {
     struct 
     {

@@ -3,8 +3,9 @@
 #include <vector>
 #include <queue>
 
-#include "Bus.h"
 #include "render.h"
+
+class Bus;
 
 enum class PPU_modes : uint8_t
 {
@@ -25,7 +26,7 @@ enum class GBColors : uint8_t
 struct object
 {
     uint8_t x;
-    uint8_t y;
+    int16_t y;
     uint8_t tIndex;
     uint8_t flags;
 };
@@ -42,18 +43,33 @@ class ppu
 
     private:
         Bus* b;
-        PPU_modes mode = PPU_modes::MODE_2;
+        Renderer *r;
+        PPU_modes mode = PPU_modes::MODE_1;
         std::vector<object> objects;
         std::queue<uint8_t> bgFIFO;
         std::queue<objPixel> obFIFO;
         uint8_t buffer[160];
         uint32_t frame[144][160];
-        uint16_t dots = 0;
-        int penalties = 0;
+        int16_t dots = 384;
+        bool prevPowerState = false;
+        bool startUp = false;
+        int window_ly = 0;
+        bool window_trigger = false;
         int tileCount = 0;
+        uint8_t lcdc = 0x00; 
+        uint8_t stat = 0x85;
+        uint8_t scy = 0x00;
+        uint8_t scx = 0x00;
+        uint8_t ly = 0x99;
+        uint8_t lyc = 0x00;
+        uint8_t wy = 0x00;
+        uint8_t wx = 0x00;
+        uint8_t bgp  = 0xFC;
+        uint8_t obp0 = 0xFF;
+        uint8_t obp1 = 0xFF;
 
     public:
-        ppu(Bus* bus, Renderer* renderer) : b(bus) {}
+        ppu(Bus* bus, Renderer* renderer) : b(bus), r(renderer) {}
         //HBlank - Mode 0
         void mode0();
         //VBlank - Mode 1
@@ -75,4 +91,9 @@ class ppu
         void setModeSTAT();
         void frameColor(GBColors color, uint8_t row, uint8_t col);
         void lineToRender();
+        auto getDot(){return dots;}
+        void setDots();
+        void setMode(PPU_modes NewMode);
+        uint8_t readReg(uint16_t addr);
+        void writeReg(uint16_t addr, uint8_t val);
 };

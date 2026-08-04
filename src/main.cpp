@@ -1,37 +1,43 @@
-#include <iostream>
-#include "cpu.h"
-#include "Bus.h"
-#include "registers.h"
-#include "Cartridge.h"
-#include "ppu.h"
+#include "gb.h"
 
-int main(){
+int main(int argc, char* argv[]){
 
-    Bus bus;
-    Bus *b = &bus;
-    registers regs;
-    registers *r = &regs;
-    Cartridge cart;
-    Cartridge *c = &cart;
+    if(argc < 2)
+    {
+        printf("Usage: %s <rom_path.gb> [boot_rom_path.bin]\n", argv[0]);
+        return 1;
+    }
 
-    cart.loadVector("./ROMS/PokemonRed.gb");
+    GameBoy gb;
 
-    ////////////////////////////////////////////////////////////
-    //  Test Loading a ROM                                    //
-    ////////////////////////////////////////////////////////////
+    if(!gb.loadRom(argv[1])){ printf("Failed to load ROM: %s\n", argv[1]); return 1;}
+    if(argc >= 3)
+    {
+        gb.init(argv[2]);
+    }
+    else
+    {
+        gb.init();
+    }
 
-    // Print cartridge title (stored at 0x134-0x143 in ROM header)
-    printf("Title: ");
-    for(int i = 0x134; i <= 0x143; i++)
-        printf("%c", cart.getRom(i));
-    printf("\n");
 
-    // Print MBC type
-    printf("MBC Type: 0x%02X\n", cart.getMBCType());
+    while(true)
+    {
 
-    CPU cpu;
-    b->connectCartridge(c);
-    cpu.connectBus(b);
-    cpu.connectRegisters(r);
+        SDL_Event event;
+        while(SDL_PollEvent(&event)) 
+        {
+            int quit = gb.joypad.handleInput(event);
+            if(quit) 
+            {
+                gb.saveGame();
+                gb.cleanup(); 
+                exit(0);
+            }
+        }
+
+        gb.tick();
+    }
+
     return 0;
 }
