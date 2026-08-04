@@ -69,7 +69,7 @@ If no ROM path is given, the emulator prints a usage message and exits.
 
 Controls are currently hardcoded:
 
-| Game Boy button  | Key       |
+| Game Boy button | Key       |
 |------------------|-----------|
 | D-Pad Up         | Up Arrow  |
 | D-Pad Down       | Down Arrow|
@@ -86,6 +86,18 @@ Controls are currently hardcoded:
 Cartridges with battery-backed RAM save to a `.sav` file. For MBC3
 cartridges with a real-time clock, RTC state is serialized alongside
 the save data. Saves are loaded on ROM load and written out on quit.
+
+## Test Results
+
+Verified against the following test ROM suites:
+
+- **Blargg's tests** — instruction timing: ✅ Pass
+- **Mooneye Test Suite**:
+  - `div_write`: ✅ Pass
+  - Rapid toggle: ✅ Pass
+
+More test suites (Blargg's CPU instructions, Mooneye's other categories,
+acid2, etc.) may be added here as they're run.
 
 ## Known Issues
 
